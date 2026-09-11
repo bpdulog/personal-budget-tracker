@@ -5,8 +5,8 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 const STORAGE_KEY = "ledgerBudgetSettings.v1";
 const REQUIRED_HEADERS = ["Date", "Account", "Description", "Category", "Tags", "Amount"];
 const starterBudgets = [
-  { id: crypto.randomUUID(), name: "Groceries", limit: 500 },
-  { id: crypto.randomUUID(), name: "Restaurants", limit: 200 },
+  { id: crypto.randomUUID(), type: "category", name: "Groceries", limit: 500 },
+  { id: crypto.randomUUID(), type: "category", name: "Restaurants", limit: 200 },
 ];
 
 const money = new Intl.NumberFormat("en-US", {
@@ -25,7 +25,12 @@ const moneyPrecise = new Intl.NumberFormat("en-US", {
 function loadBudgets() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (Array.isArray(stored?.budgets)) return stored.budgets;
+    if (Array.isArray(stored?.budgets)) {
+      return stored.budgets.map((budget) => ({
+        ...budget,
+        type: budget.type === "vendor" ? "vendor" : "category",
+      }));
+    }
   } catch {
     // A corrupt local preference should not prevent the private dashboard from opening.
   }
@@ -60,6 +65,10 @@ function formatAxisMoney(value) {
   return `$${Math.round(value)}`;
 }
 
+function normalizedText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function App() {
   const [budgets, setBudgets] = useState(loadBudgets);
   const [transactions, setTransactions] = useState([]);
@@ -90,23 +99,91 @@ function App() {
     }, {});
   }, [visibleTransactions]);
 
-  const dashboardRows = useMemo(() => {
+  const categoryBudgetMap = useMemo(() => {
+    return budgets.reduce((map, budget) => {
+      const name = String(budget.name || "").trim();
+      if ((budget.type || "category") === "category" && name) map[normalizedText(name)] = budget;
+      return map;
+    }, {});
+  }, [budgets]);
+
+  const categoryRows = useMemo(() => {
+    const categoryNames = new Map();
+    Object.keys(spendingByCategory).forEach((name) => categoryNames.set(normalizedText(name), name));
+    budgets
+      .filter((budget) => (budget.type || "category") === "category" && String(budget.name || "").trim())
+      .forEach((budget) => categoryNames.set(normalizedText(budget.name), budget.name.trim()));
+
+    return [...categoryNames.entries()].map(([categoryKey, name]) => {
+      const budget = categoryBudgetMap[categoryKey];
+      const spent = Object.entries(spendingByCategory)
+        .filter(([category]) => normalizedText(category) === categoryKey)
+        .reduce((total, [, value]) => total + value, 0);
+      const limit = budget ? Math.max(0, Number(budget.limit) || 0) : null;
+      const percent = limit ? (spent / limit) * 100 : 0;
+      return {
+        id: `category-${categoryKey}`,
+        type: "category",
+        name,
+        spent,
+        limit,
+        hasBudget: Boolean(budget),
+        percent,
+        remaining: limit === null ? null : limit - spent,
+      };
+    });
+  }, [budgets, categoryBudgetMap, spendingByCategory]);
+
+  const vendorRows = useMemo(() => {
     return budgets
-      .filter((budget) => budget.name.trim())
+      .filter((budget) => budget.type === "vendor" && String(budget.name || "").trim())
       .map((budget) => {
-        const spent = spendingByCategory[budget.name.trim()] || 0;
+        const searchText = normalizedText(budget.name);
+        const spent = visibleTransactions.reduce((total, transaction) => {
+          if (transaction.amount >= 0 || !normalizedText(transaction.description).includes(searchText)) return total;
+          return total + Math.abs(transaction.amount);
+        }, 0);
         const limit = Math.max(0, Number(budget.limit) || 0);
-        const percent = limit ? (spent / limit) * 100 : 0;
-        return { ...budget, name: budget.name.trim(), spent, limit, percent, remaining: limit - spent };
+        return {
+          ...budget,
+          id: `vendor-${budget.id}`,
+          type: "vendor",
+          name: `Vendor: ${budget.name.trim()}`,
+          spent,
+          limit,
+          hasBudget: true,
+          percent: limit ? (spent / limit) * 100 : 0,
+          remaining: limit - spent,
+        };
       });
-  }, [budgets, spendingByCategory]);
+  }, [budgets, visibleTransactions]);
+
+  const dashboardRows = useMemo(() => [...categoryRows, ...vendorRows], [categoryRows, vendorRows]);
+
+  const cashFlow = useMemo(() => {
+    return visibleTransactions.reduce(
+      (flow, transaction) => {
+        if (transaction.amount >= 0) flow.incoming += transaction.amount;
+        else flow.outgoing += Math.abs(transaction.amount);
+        return flow;
+      },
+      { incoming: 0, outgoing: 0 },
+    );
+  }, [visibleTransactions]);
 
   const summary = useMemo(() => {
-    const budgetedSpend = dashboardRows.reduce((total, row) => total + row.spent, 0);
-    const budgetTotal = dashboardRows.reduce((total, row) => total + row.limit, 0);
+    const vendorMatches = vendorRows.map((row) => normalizedText(row.name.replace(/^Vendor:\s*/i, "")));
+    const budgetedSpend = visibleTransactions.reduce((total, transaction) => {
+      if (transaction.amount >= 0) return total;
+      const categoryKey = normalizedText(transaction.category || "Uncategorized");
+      const hasCategoryBudget = Boolean(categoryBudgetMap[categoryKey]);
+      const hasVendorBudget = vendorMatches.some((searchText) => normalizedText(transaction.description).includes(searchText));
+      return hasCategoryBudget || hasVendorBudget ? total + Math.abs(transaction.amount) : total;
+    }, 0);
+    const budgetTotal = budgets.reduce((total, budget) => total + (String(budget.name || "").trim() ? Math.max(0, Number(budget.limit) || 0) : 0), 0);
     const allExpenses = Object.values(spendingByCategory).reduce((total, value) => total + value, 0);
     return { budgetedSpend, budgetTotal, allExpenses, remaining: budgetTotal - budgetedSpend };
-  }, [dashboardRows, spendingByCategory]);
+  }, [budgets, categoryBudgetMap, spendingByCategory, vendorRows, visibleTransactions]);
 
   function importCsv(file) {
     if (!file) return;
@@ -166,20 +243,16 @@ function App() {
     setBudgets((current) => current.map((budget) => (budget.id === id ? { ...budget, [field]: value } : budget)));
   }
 
-  function addBudget(name = "", limit = 0) {
-    setBudgets((current) => [...current, { id: crypto.randomUUID(), name, limit }]);
+  function addBudget(name = "", limit = 0, type = "category") {
+    setBudgets((current) => [...current, { id: crypto.randomUUID(), type, name, limit }]);
   }
 
   function addImportedCategory() {
-    const firstUnbudgeted = Object.keys(spendingByCategory).find(
-      (category) => !budgets.some((budget) => budget.name.trim().toLowerCase() === category.toLowerCase()),
-    );
+    const firstUnbudgeted = categoryRows.find((row) => !row.hasBudget)?.name;
     if (firstUnbudgeted) addBudget(firstUnbudgeted, 0);
   }
 
-  const unbudgetedCategories = Object.keys(spendingByCategory).filter(
-    (category) => !budgets.some((budget) => budget.name.trim().toLowerCase() === category.toLowerCase()),
-  );
+  const unbudgetedCategories = categoryRows.filter((row) => !row.hasBudget && row.spent > 0).map((row) => row.name);
 
   return (
     <main className="app-shell">
@@ -190,7 +263,7 @@ function App() {
           <div>
             <p className="eyebrow">Private budget workspace</p>
             <h1>Know where every<br />dollar is going.</h1>
-            <p className="hero-copy">Import a monthly CSV, set category limits, and review your spending without sending a single transaction anywhere.</p>
+            <p className="hero-copy">Import a monthly CSV, set category or vendor limits, and review your spending without sending a single transaction anywhere.</p>
           </div>
           <div className="privacy-badge"><span className="privacy-lock">⌁</span><span><strong>Browser-only</strong><small>Transactions never leave this tab</small></span></div>
         </header>
@@ -213,12 +286,17 @@ function App() {
             <p className="file-note">Expected columns: Date, Account, Description, Category, Tags, Amount</p>
             {message && <p className="message" role="status">{message}</p>}
 
-            <div className="budget-heading"><div><p className="eyebrow">Configuration</p><h2>Category limits</h2></div><button className="text-button" type="button" onClick={() => addBudget()}>+ Add</button></div>
+            <div className="budget-heading"><div><p className="eyebrow">Configuration</p><h2>Budget rules</h2></div><button className="text-button" type="button" onClick={() => addBudget()}>+ Add</button></div>
+            <p className="budget-help">Category rules use the imported Category. Vendor rules match anywhere in a transaction Description.</p>
             <div className="budget-list">
               {budgets.map((budget) => (
                 <div className="budget-inputs" key={budget.id}>
-                  <input aria-label="Budget category" value={budget.name} placeholder="Category name" onChange={(event) => updateBudget(budget.id, "name", event.target.value)} />
-                  <label><span>$</span><input aria-label={`${budget.name || "Category"} monthly limit`} type="number" min="0" step="25" value={budget.limit} onChange={(event) => updateBudget(budget.id, "limit", event.target.value)} /></label>
+                  <select aria-label={`${budget.name || "Budget"} rule type`} value={budget.type || "category"} onChange={(event) => updateBudget(budget.id, "type", event.target.value)}>
+                    <option value="category">Category</option>
+                    <option value="vendor">Vendor</option>
+                  </select>
+                  <input aria-label={budget.type === "vendor" ? "Vendor search text" : "Budget category"} value={budget.name} placeholder={budget.type === "vendor" ? "e.g. Amazon" : "Category name"} onChange={(event) => updateBudget(budget.id, "name", event.target.value)} />
+                  <label><span>$</span><input aria-label={`${budget.name || "Budget"} monthly limit`} type="number" min="0" step="25" value={budget.limit} onChange={(event) => updateBudget(budget.id, "limit", event.target.value)} /></label>
                   <button className="remove-button" type="button" aria-label={`Remove ${budget.name || "budget"}`} onClick={() => setBudgets((current) => current.filter((entry) => entry.id !== budget.id))}>×</button>
                 </div>
               ))}
@@ -233,7 +311,7 @@ function App() {
             </div>
 
             <div className="metric-grid">
-              <article className="metric highlight"><span>Budgeted spend</span><strong>{money.format(summary.budgetedSpend)}</strong><small>Across saved categories</small></article>
+              <article className="metric highlight"><span>Budgeted spend</span><strong>{money.format(summary.budgetedSpend)}</strong><small>Across matching rules</small></article>
               <article className="metric"><span>Total limits</span><strong>{money.format(summary.budgetTotal)}</strong><small>For this month</small></article>
               <article className="metric"><span>Remaining</span><strong className={summary.remaining < 0 ? "over" : ""}>{money.format(summary.remaining)}</strong><small>{summary.remaining < 0 ? "Over configured limits" : "Still available"}</small></article>
               <article className="metric"><span>Transactions</span><strong>{visibleTransactions.length}</strong><small>{selectedPeriod ? "In selected period" : "Import a CSV to view"}</small></article>
@@ -244,6 +322,27 @@ function App() {
             ) : (
               <>
                 {unbudgetedCategories.length > 0 && <div className="unbudgeted-note"><span>Unbudgeted spending found in {unbudgetedCategories.length} categor{unbudgetedCategories.length === 1 ? "y" : "ies"}.</span><button type="button" onClick={addImportedCategory}>Add {unbudgetedCategories[0]} as a limit</button></div>}
+                <section className="cashflow-shell">
+                  <div className="panel-heading"><div><p className="eyebrow">Monthly movement</p><h2>Cash flow</h2></div><span className={`quiet-summary ${cashFlow.incoming - cashFlow.outgoing < 0 ? "over" : ""}`}>{moneyPrecise.format(cashFlow.incoming - cashFlow.outgoing)} net</span></div>
+                  <div className="cashflow-layout">
+                    <div className="cashflow-stats">
+                      <div className="cashflow-stat incoming"><span>Money in</span><strong>{moneyPrecise.format(cashFlow.incoming)}</strong><small>Positive transactions</small></div>
+                      <div className="cashflow-stat outgoing"><span>Money out</span><strong>{moneyPrecise.format(cashFlow.outgoing)}</strong><small>Expenses and payments</small></div>
+                    </div>
+                    <div className="cashflow-chart">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={[{ name: "Selected month", incoming: cashFlow.incoming, outgoing: cashFlow.outgoing }]} margin={{ top: 8, right: 12, left: -16, bottom: 4 }} barGap={14}>
+                          <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
+                          <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                          <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                          <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                          <Bar dataKey="incoming" name="Money in" fill="#2dd4bf" radius={[5, 5, 0, 0]} />
+                          <Bar dataKey="outgoing" name="Money out" fill="#d8b45f" radius={[5, 5, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </section>
                 <section className="chart-shell">
                   <div className="panel-heading"><div><p className="eyebrow">Limit comparison</p><h2>Spending against plan</h2></div><div className="chart-legend"><span><i className="spent-dot" />Spent</span><span><i className="limit-dot" />Monthly limit</span></div></div>
                   <div className="chart-wrap">
@@ -261,9 +360,9 @@ function App() {
                 </section>
 
                 <section className="progress-shell">
-                  <div className="panel-heading"><div><p className="eyebrow">Category detail</p><h2>Budget health</h2></div><span className="quiet-summary">{money.format(summary.allExpenses)} total expenses</span></div>
+                  <div className="panel-heading"><div><p className="eyebrow">Budget detail</p><h2>Budget health</h2></div><span className="quiet-summary">{money.format(summary.allExpenses)} total expenses</span></div>
                   <div className="progress-list">
-                    {dashboardRows.map((row) => <article className="progress-row" key={row.id}><div className="progress-label"><span>{row.name}</span><strong>{moneyPrecise.format(row.spent)} <small>of {money.format(row.limit)}</small></strong></div><div className="progress-track"><div className={`progress-fill ${row.percent > 100 ? "over-limit" : ""}`} style={{ width: `${Math.min(row.percent, 100)}%` }} /></div><p className={row.remaining < 0 ? "over" : ""}>{row.limit ? row.remaining >= 0 ? `${money.format(row.remaining)} remaining` : `${money.format(Math.abs(row.remaining))} over` : "Set a limit"}</p></article>)}
+                    {dashboardRows.map((row) => <article className="progress-row" key={row.id}><div className="progress-label"><span>{row.name}</span><strong>{moneyPrecise.format(row.spent)} <small>{row.hasBudget ? `of ${money.format(row.limit)}` : "no comparison"}</small></strong></div><div className="progress-track"><div className={`progress-fill ${row.percent > 100 ? "over-limit" : ""}`} style={{ width: `${Math.min(row.percent, 100)}%` }} /></div><p className={row.remaining < 0 ? "over" : ""}>{row.hasBudget ? row.remaining >= 0 ? `${money.format(row.remaining)} remaining` : `${money.format(Math.abs(row.remaining))} over` : "No budget set"}</p></article>)}
                   </div>
                 </section>
               </>
