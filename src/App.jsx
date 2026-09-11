@@ -95,7 +95,7 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const [mtdDay, setMtdDay] = useState(() => String(new Date().getDate()));
-  const [comparisonMode, setComparisonMode] = useState("amount");
+  const [comparisonMode, setComparisonMode] = useState("percent");
   const [trendCategory, setTrendCategory] = useState("all");
   const [trendStartPeriod, setTrendStartPeriod] = useState("");
   const [trendEndPeriod, setTrendEndPeriod] = useState("");
@@ -368,7 +368,8 @@ function App() {
   const comparisonChartRows = useMemo(() => {
     return dashboardRows.map((row) => ({
       ...row,
-      chartSpent: comparisonMode === "percent" ? row.hasBudget ? row.percent : null : row.spent,
+      rawChartSpent: comparisonMode === "percent" ? row.hasBudget ? row.percent : null : row.spent,
+      chartSpent: comparisonMode === "percent" ? row.hasBudget ? Math.min(row.percent, 200) : null : row.spent,
       chartLimit: comparisonMode === "percent" ? row.hasBudget ? 100 : null : row.limit,
     }));
   }, [comparisonMode, dashboardRows]);
@@ -584,6 +585,13 @@ function App() {
                   </div>
                   <div className="detail-empty"><strong>Upload a CSV to unlock category details.</strong><span>Counts, totals, vendor groupings, and matching transactions will appear here.</span></div>
                 </section>
+                <section className="mtd-shell mtd-disabled">
+                  <div className="panel-heading mtd-heading">
+                    <div><p className="eyebrow">Month-to-date comparison</p><h2>How spending is pacing</h2><p className="section-copy">Choose a cutoff day to compare the selected month with the prior month and prior year.</p></div>
+                    <label className="trend-select mtd-day-select"><span>Through day</span><select aria-label="Choose the month-to-date cutoff day" disabled><option>Import a CSV first</option></select></label>
+                  </div>
+                  <div className="detail-empty"><strong>Upload a CSV to unlock MTD spending comparisons.</strong><span>Missing comparison periods will be marked unavailable rather than counted as zero.</span></div>
+                </section>
                 <section className="income-shell income-disabled">
                   <div className="panel-heading income-heading">
                     <div><p className="eyebrow">Incoming money</p><h2>Income over time</h2><p className="section-copy">Track deposits across imported periods and see which sources make up your incoming money.</p></div>
@@ -739,13 +747,13 @@ function App() {
                         <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => formatChartValue(value, comparisonMode)} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <ReferenceLine y={comparisonAverage} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${formatChartValue(comparisonAverage, comparisonMode)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
-                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => formatChartValue(value, comparisonMode)} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value, name, item) => formatChartValue(comparisonMode === "percent" ? item?.payload?.rawChartSpent ?? value : value, comparisonMode)} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
                         <Bar dataKey="chartSpent" name={comparisonMode === "percent" ? "Spent %" : "Spent"} radius={[5, 5, 0, 0]}>{comparisonChartRows.map((row) => <Cell key={row.id} fill={row.percent > 100 ? "#fb7185" : "#d8b45f"} />)}</Bar>
                         <Bar dataKey="chartLimit" name={comparisonMode === "percent" ? "Limit" : "Monthly limit"} fill="rgba(45, 212, 191, .65)" radius={[5, 5, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                  {comparisonMode === "percent" && <p className="chart-note">Relative view compares budgeted categories at the same scale; categories without a configured limit are omitted.</p>}
+                  <p className="chart-note">{comparisonMode === "percent" ? "Relative view compares budgeted categories at the same scale. Bars cap at 200% so extreme outliers do not flatten the rest; hover for exact values." : "Large dollar differences can compress smaller categories. Switch to Percent of limit for a more comparable view."}</p>
                 </section>
 
                 <section className="progress-shell">
