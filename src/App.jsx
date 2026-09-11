@@ -65,6 +65,12 @@ function trendPeriodLabel(key) {
   return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(new Date(year, month - 1, 1));
 }
 
+function periodRangeLabel(start, end) {
+  if (!start && !end) return "All imported periods";
+  if (start && end && start === end) return periodLabel(start);
+  return `${start ? periodLabel(start) : "Earliest period"} – ${end ? periodLabel(end) : "Latest period"}`;
+}
+
 function formatAxisMoney(value) {
   if (value >= 1000) return `$${Math.round(value / 1000)}k`;
   return `$${Math.round(value)}`;
@@ -81,6 +87,7 @@ function App() {
   const [trendCategory, setTrendCategory] = useState("all");
   const [trendStartPeriod, setTrendStartPeriod] = useState("");
   const [trendEndPeriod, setTrendEndPeriod] = useState("");
+  const [detailCategory, setDetailCategory] = useState("");
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
@@ -155,6 +162,43 @@ function App() {
   }, [visibleTrendData]);
 
   const selectedTrendName = trendCategory === "all" ? "All expenses" : trendCategories.find((category) => category.key === trendCategory)?.name || "All expenses";
+
+  const detailTransactions = useMemo(() => {
+    if (!detailCategory) return [];
+    return transactions
+      .filter((transaction) => {
+        if (transaction.amount >= 0 || normalizedText(transaction.category || "Uncategorized") !== detailCategory) return false;
+        const period = periodKey(transaction.date);
+        return (!trendStartPeriod || period >= trendStartPeriod) && (!trendEndPeriod || period <= trendEndPeriod);
+      })
+      .sort((a, b) => b.date - a.date);
+  }, [detailCategory, transactions, trendEndPeriod, trendStartPeriod]);
+
+  const detailVendors = useMemo(() => {
+    const vendors = new Map();
+    detailTransactions.forEach((transaction) => {
+      const name = transaction.description || "Unknown vendor";
+      const key = normalizedText(name) || "unknown vendor";
+      const current = vendors.get(key) || { key, name, amount: 0, count: 0 };
+      current.amount += Math.abs(transaction.amount);
+      current.count += 1;
+      vendors.set(key, current);
+    });
+    return [...vendors.values()].sort((a, b) => b.amount - a.amount);
+  }, [detailTransactions]);
+
+  const detailSummary = useMemo(() => {
+    const total = detailTransactions.reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
+    return {
+      total,
+      count: detailTransactions.length,
+      vendorCount: detailVendors.length,
+      average: detailTransactions.length ? total / detailTransactions.length : 0,
+    };
+  }, [detailTransactions, detailVendors]);
+
+  const selectedDetailName = trendCategories.find((category) => category.key === detailCategory)?.name || "Selected category";
+  const detailRange = periodRangeLabel(trendStartPeriod, trendEndPeriod);
 
   const spendingByCategory = useMemo(() => {
     return visibleTransactions.reduce((totals, transaction) => {
@@ -297,6 +341,7 @@ function App() {
         setSelectedPeriod(nextPeriods[0]);
         setTrendStartPeriod("");
         setTrendEndPeriod("");
+        setDetailCategory("");
         setMessage(`${validRows.length} transactions loaded in memory. Close or refresh this tab to clear them.`);
 
         if (errors.length) {
@@ -411,6 +456,37 @@ function App() {
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
+                </section>
+                <section className="category-detail-shell">
+                  <div className="panel-heading category-detail-heading">
+                    <div><p className="eyebrow">Category explorer</p><h2>Drill into a category</h2><p className="section-copy">Review vendors and individual transactions in the selected range. Vendors are grouped from the imported Description field.</p></div>
+                    <label className="trend-select"><span>Category</span><select aria-label="Choose a category to inspect" value={detailCategory} onChange={(event) => setDetailCategory(event.target.value)}><option value="">Choose a category</option>{trendCategories.map((category) => <option key={`detail-${category.key}`} value={category.key}>{category.name}</option>)}</select></label>
+                  </div>
+                  {!detailCategory ? (
+                    <div className="detail-empty"><strong>Choose a category to see the details.</strong><span>Counts, totals, vendor groupings, and matching transactions will appear here.</span></div>
+                  ) : !detailTransactions.length ? (
+                    <div className="detail-empty"><strong>No matching transactions in this range.</strong><span>Try widening the trend date range or choosing another category.</span></div>
+                  ) : (
+                    <>
+                      <div className="detail-context"><span><strong>{selectedDetailName}</strong> · {detailRange}</span><span>{detailSummary.count} transaction{detailSummary.count === 1 ? "" : "s"} across {detailSummary.vendorCount} vendor{detailSummary.vendorCount === 1 ? "" : "s"}</span></div>
+                      <div className="detail-metrics">
+                        <article className="detail-metric"><span>Total spend</span><strong>{moneyPrecise.format(detailSummary.total)}</strong></article>
+                        <article className="detail-metric"><span>Transactions</span><strong>{detailSummary.count}</strong></article>
+                        <article className="detail-metric"><span>Vendors</span><strong>{detailSummary.vendorCount}</strong></article>
+                        <article className="detail-metric"><span>Average transaction</span><strong>{moneyPrecise.format(detailSummary.average)}</strong></article>
+                      </div>
+                      <div className="detail-grid">
+                        <div className="vendor-breakdown">
+                          <div className="detail-subheading"><div><p className="eyebrow">Grouped by description</p><h3>Vendors</h3></div><span>{detailVendors.length} total</span></div>
+                          <div className="vendor-list">{detailVendors.map((vendor) => <div className="vendor-row" key={vendor.key}><div className="vendor-row-label"><span>{vendor.name}</span><strong>{moneyPrecise.format(vendor.amount)}</strong></div><div className="vendor-row-meta"><span>{vendor.count} transaction{vendor.count === 1 ? "" : "s"}</span><span>{detailSummary.total ? `${((vendor.amount / detailSummary.total) * 100).toFixed(0)}%` : "0%"}</span></div><div className="vendor-track"><div style={{ width: `${detailSummary.total ? (vendor.amount / detailSummary.total) * 100 : 0}%` }} /></div></div>)}</div>
+                        </div>
+                        <div className="transaction-breakdown">
+                          <div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Transactions</h3></div><span>{detailSummary.count} total</span></div>
+                          <div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{detailTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown description"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(Math.abs(transaction.amount))}</td></tr>)}</tbody></table></div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </section>
                 <section className="cashflow-shell">
                   <div className="panel-heading"><div><p className="eyebrow">Monthly movement</p><h2>Cash flow</h2></div><span className={`quiet-summary ${cashFlow.incoming - cashFlow.outgoing < 0 ? "over" : ""}`}>{moneyPrecise.format(cashFlow.incoming - cashFlow.outgoing)} net</span></div>
