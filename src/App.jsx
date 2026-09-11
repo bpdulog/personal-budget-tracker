@@ -431,7 +431,16 @@ function App() {
             </div>
 
             {!transactions.length ? (
-              <section className="empty-state"><span>⌁</span><h3>Your dashboard is ready.</h3><p>Upload a CSV to see private, month-by-month budget progress.</p></section>
+              <>
+                <section className="empty-state"><span>⌁</span><h3>Your dashboard is ready.</h3><p>Upload a CSV to see private, month-by-month budget progress.</p></section>
+                <section className="category-detail-shell category-detail-disabled">
+                  <div className="panel-heading category-detail-heading">
+                    <div><p className="eyebrow">Category explorer</p><h2>Drill into a category</h2><p className="section-copy">Review vendors and individual transactions by category after importing your activity.</p></div>
+                    <label className="trend-select"><span>Category</span><select aria-label="Choose a category to inspect" disabled><option>Import a CSV first</option></select></label>
+                  </div>
+                  <div className="detail-empty"><strong>Upload a CSV to unlock category details.</strong><span>Counts, totals, vendor groupings, and matching transactions will appear here.</span></div>
+                </section>
+              </>
             ) : (
               <>
                 {unbudgetedCategories.length > 0 && <div className="unbudgeted-note"><span>Unbudgeted spending found in {unbudgetedCategories.length} categor{unbudgetedCategories.length === 1 ? "y" : "ies"}.</span><button type="button" onClick={addImportedCategory}>Add {unbudgetedCategories[0]} as a limit</button></div>}
