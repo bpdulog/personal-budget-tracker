@@ -71,6 +71,12 @@ function periodRangeLabel(start, end) {
   return `${start ? periodLabel(start) : "Earliest period"} – ${end ? periodLabel(end) : "Latest period"}`;
 }
 
+function offsetPeriod(key, monthOffset) {
+  const [year, month] = key.split("-").map(Number);
+  const date = new Date(year, month - 1 + monthOffset, 1);
+  return periodKey(date);
+}
+
 function formatAxisMoney(value) {
   if (value >= 1000) return `$${Math.round(value / 1000)}k`;
   return `$${Math.round(value)}`;
@@ -88,6 +94,7 @@ function App() {
   const [budgets, setBudgets] = useState(loadBudgets);
   const [transactions, setTransactions] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState("");
+  const [mtdDay, setMtdDay] = useState(() => String(new Date().getDate()));
   const [comparisonMode, setComparisonMode] = useState("amount");
   const [trendCategory, setTrendCategory] = useState("all");
   const [trendStartPeriod, setTrendStartPeriod] = useState("");
@@ -396,6 +403,37 @@ function App() {
     return { budgetedSpend, budgetTotal, allExpenses, remaining: budgetTotal - budgetedSpend };
   }, [budgets, categoryBudgetMap, spendingByCategory, vendorRows, visibleTransactions]);
 
+  const mtdComparison = useMemo(() => {
+    const day = Number(mtdDay) || 1;
+    if (!selectedPeriod) return { day, rows: [], average: 0 };
+
+    const periodKeys = [selectedPeriod, offsetPeriod(selectedPeriod, -1), offsetPeriod(selectedPeriod, -12)];
+    const roles = ["Selected month", "Prior month", "Same month last year"];
+    const rows = periodKeys.map((period, index) => {
+      const periodTransactions = transactions.filter((transaction) => periodKey(transaction.date) === period);
+      const expenseTransactions = periodTransactions.filter((transaction) => transaction.amount < 0 && transaction.date.getDate() <= day);
+      const amount = expenseTransactions.reduce((total, transaction) => total + Math.abs(transaction.amount), 0);
+      return {
+        period,
+        role: roles[index],
+        label: periodLabel(period),
+        chartLabel: index === 0 ? "Selected month" : index === 1 ? "Prior month" : "Prior year",
+        amount,
+        count: expenseTransactions.length,
+        available: periodTransactions.length > 0,
+      };
+    });
+    const currentAmount = rows[0]?.amount || 0;
+    const comparisonRows = rows.map((row, index) => ({
+      ...row,
+      delta: index === 0 || !row.available ? null : currentAmount - row.amount,
+      percent: index === 0 || !row.available || !row.amount ? null : ((currentAmount - row.amount) / row.amount) * 100,
+    }));
+    const availableRows = comparisonRows.filter((row) => row.available);
+    const average = availableRows.length ? availableRows.reduce((total, row) => total + row.amount, 0) / availableRows.length : 0;
+    return { day, rows: comparisonRows, average, chartRows: availableRows };
+  }, [mtdDay, selectedPeriod, transactions]);
+
   function importCsv(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -557,6 +595,26 @@ function App() {
             ) : (
               <>
                 {unbudgetedCategories.length > 0 && <div className="unbudgeted-note"><span>Unbudgeted spending found in {unbudgetedCategories.length} categor{unbudgetedCategories.length === 1 ? "y" : "ies"}.</span><button type="button" onClick={addImportedCategory}>Add {unbudgetedCategories[0]} as a limit</button></div>}
+                <section className="mtd-shell">
+                  <div className="panel-heading mtd-heading">
+                    <div><p className="eyebrow">Month-to-date comparison</p><h2>How spending is pacing</h2><p className="section-copy">Compare the selected month through one cutoff day with the prior month and the same month last year.</p></div>
+                    <label className="trend-select mtd-day-select"><span>Through day</span><select aria-label="Choose the month-to-date cutoff day" value={mtdDay} onChange={(event) => setMtdDay(event.target.value)}>{Array.from({ length: 31 }, (_, index) => index + 1).map((day) => <option key={day} value={day}>{day}</option>)}</select></label>
+                  </div>
+                  <div className="mtd-cards">{mtdComparison.rows.map((row, index) => <article className={`mtd-card ${!row.available ? "is-unavailable" : ""}`} key={row.period}><span>{row.role}</span><strong>{row.available ? moneyPrecise.format(row.amount) : "Not available"}</strong><small>{row.available ? `${row.count} expense${row.count === 1 ? "" : "s"} through day ${mtdComparison.day}` : "Not imported in this CSV"}</small>{index > 0 && <p className={row.delta > 0 ? "mtd-higher" : row.delta < 0 ? "mtd-lower" : ""}>{!row.available ? "No comparison data" : row.delta === 0 ? "Same as selected month" : `Current is ${moneyPrecise.format(Math.abs(row.delta))} ${row.delta > 0 ? "higher" : "lower"}${row.percent === null ? "" : ` (${Math.abs(row.percent).toFixed(0)}%)`}`}</p>}</article>)}</div>
+                  <div className="mtd-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={mtdComparison.chartRows} margin={{ top: 14, right: 14, left: -10, bottom: 4 }}>
+                        <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
+                        <XAxis dataKey="chartLabel" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <ReferenceLine y={mtdComparison.average} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(mtdComparison.average)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
+                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${label} · through day ${mtdComparison.day}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Bar dataKey="amount" name="Expenses" radius={[5, 5, 0, 0]}>{mtdComparison.chartRows.map((row, index) => <Cell key={row.period} fill={index === 0 ? "#2dd4bf" : index === 1 ? "#d8b45f" : "#b98d36"} />)}</Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="mtd-note">A comparison is shown only when that period exists in the imported data. Missing periods are not treated as $0.</p>
+                </section>
                 <section className="trend-shell">
                   <div className="panel-heading trend-heading">
                     <div><p className="eyebrow">Across imported periods</p><h2>Spending over time</h2><p className="section-copy">See how expenses move month to month, then focus on a single category.</p></div>
