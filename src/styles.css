@@ -24,4 +24,16 @@ button, input, select { font: inherit; } button { border: 0; cursor: pointer; }
 .cashflow-stat.incoming strong { color: var(--teal); }
 .cashflow-stat.outgoing strong { color: var(--accent); }
 .cashflow-chart { height: 205px; padding: 9px 4px 0; border: 1px solid rgba(231, 215, 168, .14); border-radius: 8px; background: linear-gradient(180deg, #111715, #0c1110); }
-@media (max-width: 640px) { .budget-inputs { grid-template-columns: 1fr 26px; }.budget-inputs select, .budget-inputs > input { width: auto; }.budget-inputs label { grid-column: 1 / 2; }.cashflow-layout { grid-template-columns: 1fr; }.cashflow-chart { height: 220px; } }
+.trend-shell { padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: linear-gradient(180deg, rgba(247, 241, 227, .1), rgba(247, 241, 227, .04)), rgba(13, 17, 16, .86); box-shadow: var(--shadow); }
+.trend-heading { align-items: start; }
+.section-copy { max-width: 470px; margin: 7px 0 0; color: var(--muted); font-size: .78rem; line-height: 1.5; }
+.trend-controls { display: grid; grid-template-columns: repeat(3, minmax(125px, 1fr)); gap: 8px; min-width: min(100%, 430px); }
+.trend-select { display: grid; gap: 6px; min-width: 190px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.trend-controls .trend-select { min-width: 0; }
+.trend-select select { width: 100%; color: var(--ink); font-size: .82rem; font-weight: 700; letter-spacing: normal; text-transform: none; }
+.trend-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; margin-top: 20px; color: var(--muted); font-size: .76rem; font-weight: 700; }
+.trend-summary strong { color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: 1.05rem; font-weight: 500; }
+.trend-change { color: var(--teal); }
+.trend-change.up { color: var(--danger); }
+.trend-chart { height: 280px; margin-top: 12px; padding: 9px 4px 0; border: 1px solid rgba(231, 215, 168, .14); border-radius: 8px; background: linear-gradient(180deg, #111715, #0c1110); }
+@media (max-width: 640px) { .budget-inputs { grid-template-columns: 1fr 26px; }.budget-inputs select, .budget-inputs > input { width: auto; }.budget-inputs label { grid-column: 1 / 2; }.cashflow-layout { grid-template-columns: 1fr; }.cashflow-chart { height: 220px; }.trend-controls { grid-template-columns: 1fr; min-width: 0; width: 100%; } }

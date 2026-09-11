@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const STORAGE_KEY = "ledgerBudgetSettings.v1";
 const REQUIRED_HEADERS = ["Date", "Account", "Description", "Category", "Tags", "Amount"];
@@ -60,6 +60,11 @@ function periodLabel(key) {
   return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
 }
 
+function trendPeriodLabel(key) {
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(new Date(year, month - 1, 1));
+}
+
 function formatAxisMoney(value) {
   if (value >= 1000) return `$${Math.round(value / 1000)}k`;
   return `$${Math.round(value)}`;
@@ -73,6 +78,9 @@ function App() {
   const [budgets, setBudgets] = useState(loadBudgets);
   const [transactions, setTransactions] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState("");
+  const [trendCategory, setTrendCategory] = useState("all");
+  const [trendStartPeriod, setTrendStartPeriod] = useState("");
+  const [trendEndPeriod, setTrendEndPeriod] = useState("");
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
@@ -89,6 +97,64 @@ function App() {
     if (!selectedPeriod) return [];
     return transactions.filter((transaction) => periodKey(transaction.date) === selectedPeriod);
   }, [selectedPeriod, transactions]);
+
+  const trendCategories = useMemo(() => {
+    const categories = new Map();
+    transactions.forEach((transaction) => {
+      if (transaction.amount >= 0) return;
+      const name = transaction.category || "Uncategorized";
+      const key = normalizedText(name);
+      if (!categories.has(key)) categories.set(key, name);
+    });
+    return [...categories.entries()]
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [transactions]);
+
+  useEffect(() => {
+    if (trendCategory !== "all" && !trendCategories.some((category) => category.key === trendCategory)) {
+      setTrendCategory("all");
+    }
+  }, [trendCategories, trendCategory]);
+
+  const trendData = useMemo(() => {
+    const totals = new Map();
+    transactions.forEach((transaction) => {
+      const key = periodKey(transaction.date);
+      if (!totals.has(key)) totals.set(key, { period: key, label: trendPeriodLabel(key), expenses: 0, categories: {} });
+      if (transaction.amount >= 0) return;
+      const row = totals.get(key);
+      const categoryKey = normalizedText(transaction.category || "Uncategorized");
+      const expense = Math.abs(transaction.amount);
+      row.expenses += expense;
+      row.categories[categoryKey] = (row.categories[categoryKey] || 0) + expense;
+    });
+
+    return [...totals.values()]
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((row) => ({
+        ...row,
+        value: trendCategory === "all" ? row.expenses : row.categories[trendCategory] || 0,
+      }));
+  }, [transactions, trendCategory]);
+
+  const visibleTrendData = useMemo(() => {
+    return trendData.filter((row) => {
+      const afterStart = !trendStartPeriod || row.period >= trendStartPeriod;
+      const beforeEnd = !trendEndPeriod || row.period <= trendEndPeriod;
+      return afterStart && beforeEnd;
+    });
+  }, [trendData, trendEndPeriod, trendStartPeriod]);
+
+  const trendSummary = useMemo(() => {
+    const current = visibleTrendData.at(-1)?.value || 0;
+    const previous = visibleTrendData.length > 1 ? visibleTrendData.at(-2).value : null;
+    const change = previous === null ? null : current - previous;
+    const percent = previous ? (change / previous) * 100 : null;
+    return { current, previous, change, percent, latestLabel: visibleTrendData.at(-1)?.label || "latest period" };
+  }, [visibleTrendData]);
+
+  const selectedTrendName = trendCategory === "all" ? "All expenses" : trendCategories.find((category) => category.key === trendCategory)?.name || "All expenses";
 
   const spendingByCategory = useMemo(() => {
     return visibleTransactions.reduce((totals, transaction) => {
@@ -229,6 +295,8 @@ function App() {
         const nextPeriods = [...new Set(validRows.map((row) => periodKey(row.date)))].sort((a, b) => b.localeCompare(a));
         setTransactions(validRows);
         setSelectedPeriod(nextPeriods[0]);
+        setTrendStartPeriod("");
+        setTrendEndPeriod("");
         setMessage(`${validRows.length} transactions loaded in memory. Close or refresh this tab to clear them.`);
 
         if (errors.length) {
@@ -322,6 +390,28 @@ function App() {
             ) : (
               <>
                 {unbudgetedCategories.length > 0 && <div className="unbudgeted-note"><span>Unbudgeted spending found in {unbudgetedCategories.length} categor{unbudgetedCategories.length === 1 ? "y" : "ies"}.</span><button type="button" onClick={addImportedCategory}>Add {unbudgetedCategories[0]} as a limit</button></div>}
+                <section className="trend-shell">
+                  <div className="panel-heading trend-heading">
+                    <div><p className="eyebrow">Across imported periods</p><h2>Spending over time</h2><p className="section-copy">See how expenses move month to month, then focus on a single category.</p></div>
+                    <div className="trend-controls">
+                      <label className="trend-select"><span>Trend</span><select aria-label="Choose a spending trend" value={trendCategory} onChange={(event) => setTrendCategory(event.target.value)}><option value="all">All expenses</option>{trendCategories.map((category) => <option key={category.key} value={category.key}>{category.name}</option>)}</select></label>
+                      <label className="trend-select"><span>From</span><select aria-label="Choose the first trend period" value={trendStartPeriod} onChange={(event) => { const nextStart = event.target.value; setTrendStartPeriod(nextStart); if (nextStart && trendEndPeriod && nextStart > trendEndPeriod) setTrendEndPeriod(nextStart); }}><option value="">Earliest period</option>{trendData.map((row) => <option key={`start-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
+                      <label className="trend-select"><span>To</span><select aria-label="Choose the last trend period" value={trendEndPeriod} onChange={(event) => { const nextEnd = event.target.value; setTrendEndPeriod(nextEnd); if (nextEnd && trendStartPeriod && nextEnd < trendStartPeriod) setTrendStartPeriod(nextEnd); }}><option value="">Latest period</option>{trendData.map((row) => <option key={`end-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
+                    </div>
+                  </div>
+                  <div className="trend-summary"><span><strong>{moneyPrecise.format(trendSummary.current)}</strong> {selectedTrendName.toLowerCase()} in {trendSummary.latestLabel}</span>{trendSummary.previous !== null && <span className={trendSummary.change > 0 ? "trend-change up" : "trend-change"}>{trendSummary.change > 0 ? "↑" : trendSummary.change < 0 ? "↓" : "→"} {moneyPrecise.format(Math.abs(trendSummary.change))} {trendSummary.percent === null ? "" : `(${Math.abs(trendSummary.percent).toFixed(0)}%)`} vs. prior period</span>}</div>
+                  <div className="trend-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={visibleTrendData} margin={{ top: 12, right: 14, left: -10, bottom: 4 }}>
+                        <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
+                        <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <Tooltip cursor={{ stroke: "rgba(45, 212, 191, .35)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${selectedTrendName} · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Line type="monotone" dataKey="value" name={selectedTrendName} stroke="#2dd4bf" strokeWidth={3} dot={{ r: 4, fill: "#2dd4bf", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </section>
                 <section className="cashflow-shell">
                   <div className="panel-heading"><div><p className="eyebrow">Monthly movement</p><h2>Cash flow</h2></div><span className={`quiet-summary ${cashFlow.incoming - cashFlow.outgoing < 0 ? "over" : ""}`}>{moneyPrecise.format(cashFlow.incoming - cashFlow.outgoing)} net</span></div>
                   <div className="cashflow-layout">
