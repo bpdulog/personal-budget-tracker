@@ -90,6 +90,9 @@ function App() {
   const [detailCategory, setDetailCategory] = useState("");
   const [incomeStartPeriod, setIncomeStartPeriod] = useState("");
   const [incomeEndPeriod, setIncomeEndPeriod] = useState("");
+  const [showIncomeDetails, setShowIncomeDetails] = useState(false);
+  const [incomeDetailView, setIncomeDetailView] = useState("summary");
+  const [incomeSourceFilter, setIncomeSourceFilter] = useState("all");
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
@@ -256,6 +259,26 @@ function App() {
     };
   }, [incomeSources, incomeTransactions, visibleIncomeData]);
 
+  const incomeDetailTransactions = useMemo(() => {
+    if (incomeSourceFilter === "all") return incomeTransactions;
+    return incomeTransactions.filter((transaction) => normalizedText(transaction.description || "Unknown source") === incomeSourceFilter);
+  }, [incomeSourceFilter, incomeTransactions]);
+
+  const incomeDetailSources = useMemo(() => {
+    if (incomeSourceFilter === "all") return incomeSources;
+    return incomeSources.filter((source) => source.key === incomeSourceFilter);
+  }, [incomeSourceFilter, incomeSources]);
+
+  const incomeDetailSummary = useMemo(() => {
+    const total = incomeDetailTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+    return {
+      total,
+      count: incomeDetailTransactions.length,
+      sourceCount: incomeDetailSources.length,
+      average: incomeDetailTransactions.length ? total / incomeDetailTransactions.length : 0,
+    };
+  }, [incomeDetailSources, incomeDetailTransactions]);
+
   const incomeRange = periodRangeLabel(incomeStartPeriod, incomeEndPeriod);
 
   const spendingByCategory = useMemo(() => {
@@ -402,6 +425,9 @@ function App() {
         setDetailCategory("");
         setIncomeStartPeriod("");
         setIncomeEndPeriod("");
+        setShowIncomeDetails(false);
+        setIncomeDetailView("summary");
+        setIncomeSourceFilter("all");
         setMessage(`${validRows.length} transactions loaded in memory. Close or refresh this tab to clear them.`);
 
         if (errors.length) {
@@ -588,22 +614,18 @@ function App() {
                     <div className="detail-empty"><strong>No incoming transactions in this range.</strong><span>Positive Amount values are treated as money coming in. Try widening the date range if needed.</span></div>
                   ) : (
                     <>
-                      <div className="detail-metrics">
-                        <article className="detail-metric"><span>Total incoming</span><strong>{moneyPrecise.format(incomeSummary.total)}</strong></article>
-                        <article className="detail-metric"><span>Deposits</span><strong>{incomeSummary.count}</strong></article>
-                        <article className="detail-metric"><span>Sources</span><strong>{incomeSummary.sourceCount}</strong></article>
-                        <article className="detail-metric"><span>Average deposit</span><strong>{moneyPrecise.format(incomeSummary.average)}</strong></article>
-                      </div>
-                      <div className="detail-grid">
-                        <div className="vendor-breakdown">
-                          <div className="detail-subheading"><div><p className="eyebrow">Grouped by description</p><h3>Income sources</h3></div><span>{incomeSources.length} total</span></div>
-                          <div className="vendor-list">{incomeSources.map((source) => <div className="vendor-row" key={source.key}><div className="vendor-row-label"><span>{source.name}</span><strong>{moneyPrecise.format(source.amount)}</strong></div><div className="vendor-row-meta"><span>{source.count} deposit{source.count === 1 ? "" : "s"}</span><span>{incomeSummary.total ? `${((source.amount / incomeSummary.total) * 100).toFixed(0)}%` : "0%"}</span></div><div className="vendor-track"><div style={{ width: `${incomeSummary.total ? (source.amount / incomeSummary.total) * 100 : 0}%` }} /></div></div>)}</div>
-                        </div>
-                        <div className="transaction-breakdown">
-                          <div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Incoming transactions</h3></div><span>{incomeSummary.count} total</span></div>
-                          <div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{incomeTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown source"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(transaction.amount)}</td></tr>)}</tbody></table></div>
-                        </div>
-                      </div>
+                      <div className="income-detail-bar"><span>{showIncomeDetails ? "Income details" : `${incomeSummary.count} deposits · details collapsed`}</span><button className="details-toggle" type="button" aria-expanded={showIncomeDetails} onClick={() => setShowIncomeDetails((current) => !current)}>{showIncomeDetails ? "Hide details ↑" : "Show details ↓"}</button></div>
+                      {showIncomeDetails && (
+                        <>
+                          <div className="income-detail-controls">
+                            <label className="trend-select"><span>View</span><select aria-label="Choose which income details to show" value={incomeDetailView} onChange={(event) => setIncomeDetailView(event.target.value)}><option value="summary">Summary</option><option value="sources">Sources</option><option value="transactions">Transactions</option><option value="all">All details</option></select></label>
+                            <label className="trend-select"><span>Source filter</span><select aria-label="Filter income details by source" value={incomeSourceFilter} onChange={(event) => setIncomeSourceFilter(event.target.value)}><option value="all">All sources</option>{incomeSources.map((source) => <option key={`income-filter-${source.key}`} value={source.key}>{source.name}</option>)}</select></label>
+                          </div>
+                          {(incomeDetailView === "summary" || incomeDetailView === "all") && <div className="detail-metrics"><article className="detail-metric"><span>Total incoming</span><strong>{moneyPrecise.format(incomeDetailSummary.total)}</strong></article><article className="detail-metric"><span>Deposits</span><strong>{incomeDetailSummary.count}</strong></article><article className="detail-metric"><span>Sources</span><strong>{incomeDetailSummary.sourceCount}</strong></article><article className="detail-metric"><span>Average deposit</span><strong>{moneyPrecise.format(incomeDetailSummary.average)}</strong></article></div>}
+                          {(incomeDetailView === "sources" || incomeDetailView === "all") && <div className={`detail-grid ${incomeDetailView === "all" ? "" : "detail-grid-single"}`}><div className="vendor-breakdown"><div className="detail-subheading"><div><p className="eyebrow">Grouped by description</p><h3>Income sources</h3></div><span>{incomeDetailSources.length} total</span></div><div className="vendor-list">{incomeDetailSources.map((source) => <div className="vendor-row" key={source.key}><div className="vendor-row-label"><span>{source.name}</span><strong>{moneyPrecise.format(source.amount)}</strong></div><div className="vendor-row-meta"><span>{source.count} deposit{source.count === 1 ? "" : "s"}</span><span>{incomeDetailSummary.total ? `${((source.amount / incomeDetailSummary.total) * 100).toFixed(0)}%` : "0%"}</span></div><div className="vendor-track"><div style={{ width: `${incomeDetailSummary.total ? (source.amount / incomeDetailSummary.total) * 100 : 0}%` }} /></div></div>)}</div></div>{incomeDetailView === "all" && <div className="transaction-breakdown"><div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Incoming transactions</h3></div><span>{incomeDetailSummary.count} total</span></div><div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{incomeDetailTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown source"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(transaction.amount)}</td></tr>)}</tbody></table></div></div>}</div>}
+                          {incomeDetailView === "transactions" && <div className="detail-grid detail-grid-single"><div className="transaction-breakdown"><div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Incoming transactions</h3></div><span>{incomeDetailSummary.count} total</span></div><div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{incomeDetailTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown source"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(transaction.amount)}</td></tr>)}</tbody></table></div></div></div>}
+                        </>
+                      )}
                     </>
                   )}
                 </section>
