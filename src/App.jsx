@@ -88,6 +88,8 @@ function App() {
   const [trendStartPeriod, setTrendStartPeriod] = useState("");
   const [trendEndPeriod, setTrendEndPeriod] = useState("");
   const [detailCategory, setDetailCategory] = useState("");
+  const [incomeStartPeriod, setIncomeStartPeriod] = useState("");
+  const [incomeEndPeriod, setIncomeEndPeriod] = useState("");
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
@@ -199,6 +201,62 @@ function App() {
 
   const selectedDetailName = trendCategories.find((category) => category.key === detailCategory)?.name || "Selected category";
   const detailRange = periodRangeLabel(trendStartPeriod, trendEndPeriod);
+
+  const incomeData = useMemo(() => {
+    const totals = new Map();
+    transactions.forEach((transaction) => {
+      const key = periodKey(transaction.date);
+      if (!totals.has(key)) totals.set(key, { period: key, label: trendPeriodLabel(key), income: 0 });
+      if (transaction.amount > 0) totals.get(key).income += transaction.amount;
+    });
+    return [...totals.values()]
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((row) => ({ ...row, value: row.income }));
+  }, [transactions]);
+
+  const visibleIncomeData = useMemo(() => {
+    return incomeData.filter((row) => {
+      const afterStart = !incomeStartPeriod || row.period >= incomeStartPeriod;
+      const beforeEnd = !incomeEndPeriod || row.period <= incomeEndPeriod;
+      return afterStart && beforeEnd;
+    });
+  }, [incomeData, incomeEndPeriod, incomeStartPeriod]);
+
+  const incomeTransactions = useMemo(() => {
+    return transactions
+      .filter((transaction) => {
+        if (transaction.amount <= 0) return false;
+        const period = periodKey(transaction.date);
+        return (!incomeStartPeriod || period >= incomeStartPeriod) && (!incomeEndPeriod || period <= incomeEndPeriod);
+      })
+      .sort((a, b) => b.date - a.date);
+  }, [incomeEndPeriod, incomeStartPeriod, transactions]);
+
+  const incomeSources = useMemo(() => {
+    const sources = new Map();
+    incomeTransactions.forEach((transaction) => {
+      const name = transaction.description || "Unknown source";
+      const key = normalizedText(name) || "unknown source";
+      const current = sources.get(key) || { key, name, amount: 0, count: 0 };
+      current.amount += transaction.amount;
+      current.count += 1;
+      sources.set(key, current);
+    });
+    return [...sources.values()].sort((a, b) => b.amount - a.amount);
+  }, [incomeTransactions]);
+
+  const incomeSummary = useMemo(() => {
+    const total = incomeTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+    return {
+      total,
+      count: incomeTransactions.length,
+      sourceCount: incomeSources.length,
+      average: incomeTransactions.length ? total / incomeTransactions.length : 0,
+      latestLabel: visibleIncomeData.at(-1)?.label || "latest period",
+    };
+  }, [incomeSources, incomeTransactions, visibleIncomeData]);
+
+  const incomeRange = periodRangeLabel(incomeStartPeriod, incomeEndPeriod);
 
   const spendingByCategory = useMemo(() => {
     return visibleTransactions.reduce((totals, transaction) => {
@@ -342,6 +400,8 @@ function App() {
         setTrendStartPeriod("");
         setTrendEndPeriod("");
         setDetailCategory("");
+        setIncomeStartPeriod("");
+        setIncomeEndPeriod("");
         setMessage(`${validRows.length} transactions loaded in memory. Close or refresh this tab to clear them.`);
 
         if (errors.length) {
@@ -440,6 +500,13 @@ function App() {
                   </div>
                   <div className="detail-empty"><strong>Upload a CSV to unlock category details.</strong><span>Counts, totals, vendor groupings, and matching transactions will appear here.</span></div>
                 </section>
+                <section className="income-shell income-disabled">
+                  <div className="panel-heading income-heading">
+                    <div><p className="eyebrow">Incoming money</p><h2>Income over time</h2><p className="section-copy">Track deposits across imported periods and see which sources make up your incoming money.</p></div>
+                    <div className="income-controls"><label className="trend-select"><span>From</span><select aria-label="Choose the first income period" disabled><option>Import a CSV first</option></select></label><label className="trend-select"><span>To</span><select aria-label="Choose the last income period" disabled><option>Import a CSV first</option></select></label></div>
+                  </div>
+                  <div className="detail-empty"><strong>Upload a CSV to unlock income trends.</strong><span>Incoming totals, date ranges, source groupings, and deposit details will appear here.</span></div>
+                </section>
               </>
             ) : (
               <>
@@ -492,6 +559,49 @@ function App() {
                         <div className="transaction-breakdown">
                           <div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Transactions</h3></div><span>{detailSummary.count} total</span></div>
                           <div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{detailTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown description"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(Math.abs(transaction.amount))}</td></tr>)}</tbody></table></div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </section>
+                <section className="income-shell">
+                  <div className="panel-heading income-heading">
+                    <div><p className="eyebrow">Incoming money</p><h2>Income over time</h2><p className="section-copy">Track deposits across imported periods, choose a date range, and see which sources make up your incoming money.</p></div>
+                    <div className="income-controls">
+                      <label className="trend-select"><span>From</span><select aria-label="Choose the first income period" value={incomeStartPeriod} onChange={(event) => { const nextStart = event.target.value; setIncomeStartPeriod(nextStart); if (nextStart && incomeEndPeriod && nextStart > incomeEndPeriod) setIncomeEndPeriod(nextStart); }}><option value="">Earliest period</option>{incomeData.map((row) => <option key={`income-start-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
+                      <label className="trend-select"><span>To</span><select aria-label="Choose the last income period" value={incomeEndPeriod} onChange={(event) => { const nextEnd = event.target.value; setIncomeEndPeriod(nextEnd); if (nextEnd && incomeStartPeriod && nextEnd < incomeStartPeriod) setIncomeStartPeriod(nextEnd); }}><option value="">Latest period</option>{incomeData.map((row) => <option key={`income-end-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
+                    </div>
+                  </div>
+                  <div className="trend-summary"><span><strong>{moneyPrecise.format(incomeSummary.total)}</strong> incoming · {incomeRange}</span><span>{incomeSummary.count} deposit{incomeSummary.count === 1 ? "" : "s"} across {incomeSummary.sourceCount} source{incomeSummary.sourceCount === 1 ? "" : "s"}</span></div>
+                  <div className="trend-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={visibleIncomeData} margin={{ top: 12, right: 14, left: -10, bottom: 4 }}>
+                        <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
+                        <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <Tooltip cursor={{ stroke: "rgba(216, 180, 95, .45)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `Incoming money · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Line type="monotone" dataKey="value" name="Incoming money" stroke="#d8b45f" strokeWidth={3} dot={{ r: 4, fill: "#d8b45f", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {!incomeTransactions.length ? (
+                    <div className="detail-empty"><strong>No incoming transactions in this range.</strong><span>Positive Amount values are treated as money coming in. Try widening the date range if needed.</span></div>
+                  ) : (
+                    <>
+                      <div className="detail-metrics">
+                        <article className="detail-metric"><span>Total incoming</span><strong>{moneyPrecise.format(incomeSummary.total)}</strong></article>
+                        <article className="detail-metric"><span>Deposits</span><strong>{incomeSummary.count}</strong></article>
+                        <article className="detail-metric"><span>Sources</span><strong>{incomeSummary.sourceCount}</strong></article>
+                        <article className="detail-metric"><span>Average deposit</span><strong>{moneyPrecise.format(incomeSummary.average)}</strong></article>
+                      </div>
+                      <div className="detail-grid">
+                        <div className="vendor-breakdown">
+                          <div className="detail-subheading"><div><p className="eyebrow">Grouped by description</p><h3>Income sources</h3></div><span>{incomeSources.length} total</span></div>
+                          <div className="vendor-list">{incomeSources.map((source) => <div className="vendor-row" key={source.key}><div className="vendor-row-label"><span>{source.name}</span><strong>{moneyPrecise.format(source.amount)}</strong></div><div className="vendor-row-meta"><span>{source.count} deposit{source.count === 1 ? "" : "s"}</span><span>{incomeSummary.total ? `${((source.amount / incomeSummary.total) * 100).toFixed(0)}%` : "0%"}</span></div><div className="vendor-track"><div style={{ width: `${incomeSummary.total ? (source.amount / incomeSummary.total) * 100 : 0}%` }} /></div></div>)}</div>
+                        </div>
+                        <div className="transaction-breakdown">
+                          <div className="detail-subheading"><div><p className="eyebrow">Every matching row</p><h3>Incoming transactions</h3></div><span>{incomeSummary.count} total</span></div>
+                          <div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{incomeTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown source"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(transaction.amount)}</td></tr>)}</tbody></table></div>
                         </div>
                       </div>
                     </>
