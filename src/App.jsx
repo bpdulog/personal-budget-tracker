@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const STORAGE_KEY = "ledgerBudgetSettings.v1";
 const REQUIRED_HEADERS = ["Date", "Account", "Description", "Category", "Tags", "Amount"];
@@ -76,6 +76,10 @@ function formatAxisMoney(value) {
   return `$${Math.round(value)}`;
 }
 
+function formatChartValue(value, mode) {
+  return mode === "percent" ? `${Math.round(value)}%` : moneyPrecise.format(Number(value));
+}
+
 function normalizedText(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -84,6 +88,7 @@ function App() {
   const [budgets, setBudgets] = useState(loadBudgets);
   const [transactions, setTransactions] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState("");
+  const [comparisonMode, setComparisonMode] = useState("amount");
   const [trendCategory, setTrendCategory] = useState("all");
   const [trendStartPeriod, setTrendStartPeriod] = useState("");
   const [trendEndPeriod, setTrendEndPeriod] = useState("");
@@ -163,7 +168,8 @@ function App() {
     const previous = visibleTrendData.length > 1 ? visibleTrendData.at(-2).value : null;
     const change = previous === null ? null : current - previous;
     const percent = previous ? (change / previous) * 100 : null;
-    return { current, previous, change, percent, latestLabel: visibleTrendData.at(-1)?.label || "latest period" };
+    const average = visibleTrendData.length ? visibleTrendData.reduce((total, row) => total + row.value, 0) / visibleTrendData.length : 0;
+    return { current, previous, change, percent, average, latestLabel: visibleTrendData.at(-1)?.label || "latest period" };
   }, [visibleTrendData]);
 
   const selectedTrendName = trendCategory === "all" ? "All expenses" : trendCategories.find((category) => category.key === trendCategory)?.name || "All expenses";
@@ -255,6 +261,7 @@ function App() {
       count: incomeTransactions.length,
       sourceCount: incomeSources.length,
       average: incomeTransactions.length ? total / incomeTransactions.length : 0,
+      periodAverage: visibleIncomeData.length ? visibleIncomeData.reduce((sum, row) => sum + row.value, 0) / visibleIncomeData.length : 0,
       latestLabel: visibleIncomeData.at(-1)?.label || "latest period",
     };
   }, [incomeSources, incomeTransactions, visibleIncomeData]);
@@ -350,6 +357,19 @@ function App() {
   }, [budgets, visibleTransactions]);
 
   const dashboardRows = useMemo(() => [...categoryRows, ...vendorRows], [categoryRows, vendorRows]);
+
+  const comparisonChartRows = useMemo(() => {
+    return dashboardRows.map((row) => ({
+      ...row,
+      chartSpent: comparisonMode === "percent" ? row.hasBudget ? row.percent : null : row.spent,
+      chartLimit: comparisonMode === "percent" ? row.hasBudget ? 100 : null : row.limit,
+    }));
+  }, [comparisonMode, dashboardRows]);
+
+  const comparisonAverage = useMemo(() => {
+    const values = comparisonChartRows.map((row) => row.chartSpent).filter((value) => value !== null && Number.isFinite(value));
+    return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
+  }, [comparisonChartRows]);
 
   const cashFlow = useMemo(() => {
     return visibleTransactions.reduce(
@@ -546,13 +566,14 @@ function App() {
                       <label className="trend-select"><span>To</span><select aria-label="Choose the last trend period" value={trendEndPeriod} onChange={(event) => { const nextEnd = event.target.value; setTrendEndPeriod(nextEnd); if (nextEnd && trendStartPeriod && nextEnd < trendStartPeriod) setTrendStartPeriod(nextEnd); }}><option value="">Latest period</option>{trendData.map((row) => <option key={`end-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
                     </div>
                   </div>
-                  <div className="trend-summary"><span><strong>{moneyPrecise.format(trendSummary.current)}</strong> {selectedTrendName.toLowerCase()} in {trendSummary.latestLabel}</span>{trendSummary.previous !== null && <span className={trendSummary.change > 0 ? "trend-change up" : "trend-change"}>{trendSummary.change > 0 ? "↑" : trendSummary.change < 0 ? "↓" : "→"} {moneyPrecise.format(Math.abs(trendSummary.change))} {trendSummary.percent === null ? "" : `(${Math.abs(trendSummary.percent).toFixed(0)}%)`} vs. prior period</span>}</div>
+                  <div className="trend-summary"><span><strong>{moneyPrecise.format(trendSummary.current)}</strong> {selectedTrendName.toLowerCase()} in {trendSummary.latestLabel}</span>{trendSummary.previous !== null && <span className={trendSummary.change > 0 ? "trend-change up" : "trend-change"}>{trendSummary.change > 0 ? "↑" : trendSummary.change < 0 ? "↓" : "→"} {moneyPrecise.format(Math.abs(trendSummary.change))} {trendSummary.percent === null ? "" : `(${Math.abs(trendSummary.percent).toFixed(0)}%)`} vs. prior period</span>}<span className="average-summary">Average {moneyPrecise.format(trendSummary.average)} per period</span></div>
                   <div className="trend-chart">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={visibleTrendData} margin={{ top: 12, right: 14, left: -10, bottom: 4 }}>
                         <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <ReferenceLine y={trendSummary.average} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(trendSummary.average)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
                         <Tooltip cursor={{ stroke: "rgba(45, 212, 191, .35)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${selectedTrendName} · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
                         <Line type="monotone" dataKey="value" name={selectedTrendName} stroke="#2dd4bf" strokeWidth={3} dot={{ r: 4, fill: "#2dd4bf", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
                       </LineChart>
@@ -598,13 +619,14 @@ function App() {
                       <label className="trend-select"><span>To</span><select aria-label="Choose the last income period" value={incomeEndPeriod} onChange={(event) => { const nextEnd = event.target.value; setIncomeEndPeriod(nextEnd); if (nextEnd && incomeStartPeriod && nextEnd < incomeStartPeriod) setIncomeStartPeriod(nextEnd); }}><option value="">Latest period</option>{incomeData.map((row) => <option key={`income-end-${row.period}`} value={row.period}>{periodLabel(row.period)}</option>)}</select></label>
                     </div>
                   </div>
-                  <div className="trend-summary"><span><strong>{moneyPrecise.format(incomeSummary.total)}</strong> incoming · {incomeRange}</span><span>{incomeSummary.count} deposit{incomeSummary.count === 1 ? "" : "s"} across {incomeSummary.sourceCount} source{incomeSummary.sourceCount === 1 ? "" : "s"}</span></div>
+                  <div className="trend-summary"><span><strong>{moneyPrecise.format(incomeSummary.total)}</strong> incoming · {incomeRange}</span><span>{incomeSummary.count} deposit{incomeSummary.count === 1 ? "" : "s"} across {incomeSummary.sourceCount} source{incomeSummary.sourceCount === 1 ? "" : "s"}</span><span className="average-summary">Average {moneyPrecise.format(incomeSummary.periodAverage)} per period</span></div>
                   <div className="trend-chart">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={visibleIncomeData} margin={{ top: 12, right: 14, left: -10, bottom: 4 }}>
                         <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <ReferenceLine y={incomeSummary.periodAverage} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(incomeSummary.periodAverage)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
                         <Tooltip cursor={{ stroke: "rgba(216, 180, 95, .45)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `Incoming money · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
                         <Line type="monotone" dataKey="value" name="Incoming money" stroke="#d8b45f" strokeWidth={3} dot={{ r: 4, fill: "#d8b45f", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
                       </LineChart>
@@ -651,19 +673,21 @@ function App() {
                   </div>
                 </section>
                 <section className="chart-shell">
-                  <div className="panel-heading"><div><p className="eyebrow">Limit comparison</p><h2>Spending against plan</h2></div><div className="chart-legend"><span><i className="spent-dot" />Spent</span><span><i className="limit-dot" />Monthly limit</span></div></div>
+                  <div className="panel-heading chart-heading"><div><p className="eyebrow">Limit comparison</p><h2>Spending against plan</h2></div><div className="chart-tools"><label className="chart-view-select"><span>Scale</span><select aria-label="Choose the spending comparison scale" value={comparisonMode} onChange={(event) => setComparisonMode(event.target.value)}><option value="amount">Dollar amounts</option><option value="percent">Percent of limit</option></select></label><div className="chart-legend"><span><i className="spent-dot" />{comparisonMode === "percent" ? "Spent %" : "Spent"}</span><span><i className="limit-dot" />{comparisonMode === "percent" ? "100% limit" : "Monthly limit"}</span><span><i className="average-dot" />Avg {formatChartValue(comparisonAverage, comparisonMode)}</span></div></div></div>
                   <div className="chart-wrap">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dashboardRows} margin={{ top: 12, right: 10, left: -16, bottom: 4 }} barGap={7}>
+                      <BarChart data={comparisonChartRows} margin={{ top: 12, right: 10, left: -16, bottom: 4 }} barGap={7}>
                         <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
                         <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
-                        <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
-                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
-                        <Bar dataKey="spent" name="Spent" radius={[5, 5, 0, 0]}>{dashboardRows.map((row) => <Cell key={row.id} fill={row.percent > 100 ? "#fb7185" : "#d8b45f"} />)}</Bar>
-                        <Bar dataKey="limit" name="Monthly limit" fill="rgba(45, 212, 191, .65)" radius={[5, 5, 0, 0]} />
+                        <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => formatChartValue(value, comparisonMode)} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                        <ReferenceLine y={comparisonAverage} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${formatChartValue(comparisonAverage, comparisonMode)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
+                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => formatChartValue(value, comparisonMode)} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Bar dataKey="chartSpent" name={comparisonMode === "percent" ? "Spent %" : "Spent"} radius={[5, 5, 0, 0]}>{comparisonChartRows.map((row) => <Cell key={row.id} fill={row.percent > 100 ? "#fb7185" : "#d8b45f"} />)}</Bar>
+                        <Bar dataKey="chartLimit" name={comparisonMode === "percent" ? "Limit" : "Monthly limit"} fill="rgba(45, 212, 191, .65)" radius={[5, 5, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
+                  {comparisonMode === "percent" && <p className="chart-note">Relative view compares budgeted categories at the same scale; categories without a configured limit are omitted.</p>}
                 </section>
 
                 <section className="progress-shell">

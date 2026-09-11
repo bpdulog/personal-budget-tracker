@@ -81,3 +81,21 @@ button, input, select { font: inherit; } button { border: 0; cursor: pointer; }
 .transaction-table td small { margin-top: 3px; color: var(--muted); font-size: .68rem; }
 .transaction-table td:last-child { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-size: .9rem; white-space: nowrap; }
 @media (max-width: 640px) { .budget-inputs { grid-template-columns: 1fr 26px; }.budget-inputs select, .budget-inputs > input { width: auto; }.budget-inputs label { grid-column: 1 / 2; }.cashflow-layout { grid-template-columns: 1fr; }.cashflow-chart { height: 220px; }.trend-controls, .income-controls { grid-template-columns: 1fr; min-width: 0; width: 100%; }.income-detail-bar { align-items: stretch; flex-direction: column; }.income-detail-controls { display: grid; }.income-detail-controls .trend-select { min-width: 0; }.detail-grid { grid-template-columns: 1fr; }.detail-metrics { grid-template-columns: repeat(2, 1fr); } }
+.chart-heading { align-items: start; }
+.chart-tools { display: grid; justify-items: end; gap: 10px; }
+.chart-view-select { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.chart-view-select select { min-height: 34px; color: var(--ink); font-size: .78rem; font-weight: 700; letter-spacing: normal; text-transform: none; }
+.average-dot { background: #f1e2b8; }
+.chart-note { margin: 9px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.average-summary { color: #f1e2b8; }
+.detail-grid { min-width: 0; }
+.vendor-breakdown, .transaction-breakdown { min-width: 0; overflow: hidden; }
+.detail-subheading > div, .vendor-row-label { min-width: 0; }
+.vendor-row-label span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.transaction-table { table-layout: fixed; }
+.transaction-table th, .transaction-table td { overflow-wrap: anywhere; word-break: break-word; }
+.transaction-table th:first-child, .transaction-table td:first-child { width: 104px; }
+.transaction-table th:nth-child(3), .transaction-table td:nth-child(3) { width: 105px; }
+.transaction-table th:last-child, .transaction-table td:last-child { width: 98px; }
+@media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .chart-tools { justify-items: stretch; width: 100%; }.chart-view-select { justify-content: space-between; }.chart-view-select select { flex: 1; }.chart-legend { justify-content: flex-start; } }
