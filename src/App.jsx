@@ -3,6 +3,7 @@ import Papa from "papaparse";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const STORAGE_KEY = "ledgerBudgetSettings.v1";
+const BUDGET_BACKUP_VERSION = 1;
 const REQUIRED_HEADERS = ["Date", "Account", "Description", "Category", "Tags", "Amount"];
 const starterBudgets = [
   { id: crypto.randomUUID(), type: "category", name: "Groceries", limit: 500 },
@@ -108,6 +109,7 @@ function App() {
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
+  const budgetFileInput = useRef(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ budgets }));
@@ -501,6 +503,58 @@ function App() {
     setBudgets((current) => current.map((budget) => (budget.id === id ? { ...budget, [field]: value } : budget)));
   }
 
+  function exportBudgets() {
+    const backup = {
+      format: "personal-budget-tracker-budgets",
+      version: BUDGET_BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      budgets: budgets.map(({ type, name, limit }) => ({ type: type === "vendor" ? "vendor" : "category", name, limit })),
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `budget-limits-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setMessage(`${budgets.length} budget rule${budgets.length === 1 ? "" : "s"} exported. Keep the JSON file somewhere safe.`);
+  }
+
+  async function importBudgets(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setMessage("Choose a .json budget backup file.");
+      return;
+    }
+
+    setMessage("Reading your budget backup locallyâ€¦");
+    try {
+      const backup = JSON.parse(await file.text());
+      if (backup?.format !== "personal-budget-tracker-budgets" || backup.version !== BUDGET_BACKUP_VERSION || !Array.isArray(backup.budgets)) {
+        throw new Error("unsupported format");
+      }
+
+      const restoredBudgets = backup.budgets.map((budget) => {
+        if (!budget || typeof budget !== "object") throw new Error("invalid rule");
+        const limit = Number(budget.limit);
+        if (typeof budget.name !== "string" || !Number.isFinite(limit) || limit < 0 || (budget.type !== "category" && budget.type !== "vendor")) {
+          throw new Error("invalid rule");
+        }
+        return {
+          id: crypto.randomUUID(),
+          type: budget.type,
+          name: budget.name,
+          limit,
+        };
+      });
+
+      setBudgets(restoredBudgets);
+      setMessage(`${restoredBudgets.length} budget rule${restoredBudgets.length === 1 ? "" : "s"} imported and saved to this browser.`);
+    } catch {
+      setMessage("That budget backup could not be read. No limits were changed.");
+    }
+  }
+
   function addBudget(name = "", limit = 0, type = "category") {
     setBudgets((current) => [...current, { id: crypto.randomUUID(), type, name, limit }]);
   }
@@ -559,7 +613,15 @@ function App() {
                 </div>
               ))}
             </div>
-            <p className="save-note">Limits save automatically to this browser only.</p>
+            <div className="budget-backup">
+              <div className="budget-backup-heading"><strong>Move to another computer</strong><span>JSON backup</span></div>
+              <div className="budget-backup-actions">
+                <button className="backup-button" type="button" onClick={exportBudgets}>Export limits</button>
+                <button className="backup-button" type="button" onClick={() => budgetFileInput.current?.click()}>Import limits</button>
+              </div>
+              <input ref={budgetFileInput} className="visually-hidden" type="file" accept=".json,application/json" onChange={(event) => { importBudgets(event.target.files?.[0]); event.target.value = ""; }} />
+              <p className="save-note">Export a JSON file, then import it on the other computer. Transactions still need to be uploaded again.</p>
+            </div>
           </aside>
 
           <section className="results" aria-label="Budget dashboard">

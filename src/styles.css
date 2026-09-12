@@ -12,6 +12,12 @@ button, input, select { font: inherit; } button { border: 0; cursor: pointer; }
 .budget-help { margin: 10px 0 0; color: var(--muted); font-size: .74rem; line-height: 1.5; }
 .budget-inputs { grid-template-columns: 102px minmax(0, 1fr) 88px 26px; }
 .budget-inputs select { width: 100%; }
+.budget-backup { display: grid; gap: 10px; margin-top: 20px; padding-top: 17px; border-top: 1px solid rgba(231, 215, 168, .14); }
+.budget-backup-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--ink); font-size: .78rem; }
+.budget-backup-heading span { color: var(--muted); font-size: .7rem; font-weight: 700; }
+.budget-backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.backup-button { min-height: 34px; padding: 7px 9px; color: var(--accent); border: 1px solid rgba(216, 180, 95, .32); border-radius: 5px; background: rgba(216, 180, 95, .08); font-size: .76rem; font-weight: 800; }
+.backup-button:hover { color: var(--ink); border-color: rgba(216, 180, 95, .65); background: rgba(216, 180, 95, .14); }
 .cashflow-shell { padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: linear-gradient(180deg, rgba(247, 241, 227, .1), rgba(247, 241, 227, .04)), rgba(13, 17, 16, .86); box-shadow: var(--shadow); }
 .cashflow-layout { display: grid; grid-template-columns: minmax(190px, .7fr) minmax(0, 1.3fr); gap: 20px; align-items: stretch; margin-top: 19px; }
 .cashflow-stats { display: grid; gap: 10px; }

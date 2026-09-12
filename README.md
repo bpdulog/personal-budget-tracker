@@ -6,7 +6,7 @@ A private, static monthly-budget SPA. It is designed for GitHub Pages and has no
 
 - CSV rows are parsed in the browser with PapaParse and kept only in React memory.
 - Refreshing or closing the tab clears imported transactions.
-- Only budget category names and monthly limits are stored in this browser's `localStorage`.
+- Budget category/vendor rules and monthly limits are stored in this browser's `localStorage`; use the in-app JSON export/import controls to move them between computers.
 - The app does not make any network requests or include analytics.
 
 ## CSV format
