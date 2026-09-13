@@ -664,7 +664,10 @@ function App() {
             <div className="dashboard-heading">
               <div><p className="eyebrow">Dashboard</p><h2>{selectedPeriod ? periodLabel(selectedPeriod) : "Choose a period to begin"}</h2></div>
               <div className="dashboard-actions">
-                {transactions.length > 0 && <button className="summary-export-button" type="button" onClick={exportSummary}>Export 1-page summary</button>}
+                <div className="summary-export-control">
+                  <button className="summary-export-button" type="button" onClick={exportSummary} disabled={!transactions.length || !selectedPeriod} title={!transactions.length || !selectedPeriod ? "Import a CSV to enable the one-page report" : "Open print dialog to save this report as a PDF"}>Export 1-page report</button>
+                  <small>Save as PDF from the print dialog</small>
+                </div>
                 <label className="period-select"> <span className="visually-hidden">Month and year</span><select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} disabled={!periods.length}><option value="">No imported period</option>{periods.map((period) => <option key={period} value={period}>{periodLabel(period)}</option>)}</select></label>
               </div>
             </div>
