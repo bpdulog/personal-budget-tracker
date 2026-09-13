@@ -437,28 +437,114 @@ function App() {
     return { day, rows: comparisonRows, average, chartRows: availableRows };
   }, [mtdDay, selectedPeriod, transactions]);
 
+  const reportMtdTransactions = useMemo(() => {
+    const day = Number(mtdDay) || 1;
+    return visibleTransactions.filter((transaction) => transaction.date.getDate() <= day);
+  }, [mtdDay, visibleTransactions]);
+
+  const reportMtdSpendingByCategory = useMemo(() => {
+    return reportMtdTransactions.reduce((totals, transaction) => {
+      if (transaction.amount >= 0) return totals;
+      const category = transaction.category || "Uncategorized";
+      totals[category] = (totals[category] || 0) + Math.abs(transaction.amount);
+      return totals;
+    }, {});
+  }, [reportMtdTransactions]);
+
+  const reportMtdCategoryRows = useMemo(() => {
+    const categoryNames = new Map();
+    Object.keys(reportMtdSpendingByCategory).forEach((name) => categoryNames.set(normalizedText(name), name));
+    budgets
+      .filter((budget) => (budget.type || "category") === "category" && String(budget.name || "").trim())
+      .forEach((budget) => categoryNames.set(normalizedText(budget.name), budget.name.trim()));
+
+    return [...categoryNames.entries()].map(([categoryKey, name]) => {
+      const budget = categoryBudgetMap[categoryKey];
+      const spent = Object.entries(reportMtdSpendingByCategory)
+        .filter(([category]) => normalizedText(category) === categoryKey)
+        .reduce((total, [, value]) => total + value, 0);
+      const limit = budget ? Math.max(0, Number(budget.limit) || 0) : null;
+      return {
+        id: `report-category-${categoryKey}`,
+        type: "category",
+        name,
+        spent,
+        limit,
+        hasBudget: Boolean(budget),
+        percent: limit ? (spent / limit) * 100 : 0,
+        remaining: limit === null ? null : limit - spent,
+      };
+    });
+  }, [budgets, categoryBudgetMap, reportMtdSpendingByCategory]);
+
+  const reportMtdVendorRows = useMemo(() => {
+    return budgets
+      .filter((budget) => budget.type === "vendor" && String(budget.name || "").trim())
+      .map((budget) => {
+        const searchText = normalizedText(budget.name);
+        const spent = reportMtdTransactions.reduce((total, transaction) => {
+          if (transaction.amount >= 0 || !normalizedText(transaction.description).includes(searchText)) return total;
+          return total + Math.abs(transaction.amount);
+        }, 0);
+        const limit = Math.max(0, Number(budget.limit) || 0);
+        return {
+          ...budget,
+          id: `report-vendor-${budget.id}`,
+          type: "vendor",
+          name: `Vendor: ${budget.name.trim()}`,
+          spent,
+          limit,
+          hasBudget: true,
+          percent: limit ? (spent / limit) * 100 : 0,
+          remaining: limit - spent,
+        };
+      });
+  }, [budgets, reportMtdTransactions]);
+
+  const reportMtdRows = useMemo(() => [...reportMtdCategoryRows, ...reportMtdVendorRows], [reportMtdCategoryRows, reportMtdVendorRows]);
+
+  const reportMtdCashFlow = useMemo(() => {
+    return reportMtdTransactions.reduce(
+      (flow, transaction) => {
+        if (transaction.amount >= 0) flow.incoming += transaction.amount;
+        else flow.outgoing += Math.abs(transaction.amount);
+        return flow;
+      },
+      { incoming: 0, outgoing: 0 },
+    );
+  }, [reportMtdTransactions]);
+
+  const reportMtdIncomeCount = useMemo(() => reportMtdTransactions.filter((transaction) => transaction.amount > 0).length, [reportMtdTransactions]);
+
+  const reportMtdSummary = useMemo(() => {
+    const vendorMatches = reportMtdVendorRows.map((row) => normalizedText(row.name.replace(/^Vendor:\s*/i, "")));
+    const budgetedSpend = reportMtdTransactions.reduce((total, transaction) => {
+      if (transaction.amount >= 0) return total;
+      const categoryKey = normalizedText(transaction.category || "Uncategorized");
+      const hasCategoryBudget = Boolean(categoryBudgetMap[categoryKey]);
+      const hasVendorBudget = vendorMatches.some((searchText) => normalizedText(transaction.description).includes(searchText));
+      return hasCategoryBudget || hasVendorBudget ? total + Math.abs(transaction.amount) : total;
+    }, 0);
+    const budgetTotal = budgets.reduce((total, budget) => total + (String(budget.name || "").trim() ? Math.max(0, Number(budget.limit) || 0) : 0), 0);
+    const allExpenses = Object.values(reportMtdSpendingByCategory).reduce((total, value) => total + value, 0);
+    return { budgetedSpend, budgetTotal, allExpenses, remaining: budgetTotal - budgetedSpend };
+  }, [budgets, categoryBudgetMap, reportMtdSpendingByCategory, reportMtdTransactions, reportMtdVendorRows]);
+
   const summaryCategories = useMemo(() => {
-    const total = Object.values(spendingByCategory).reduce((sum, amount) => sum + amount, 0);
-    return Object.entries(spendingByCategory)
+    const total = Object.values(reportMtdSpendingByCategory).reduce((sum, amount) => sum + amount, 0);
+    return Object.entries(reportMtdSpendingByCategory)
       .map(([name, amount]) => ({ name, amount, share: total ? (amount / total) * 100 : 0 }))
       .sort((a, b) => b.amount - a.amount);
-  }, [spendingByCategory]);
+  }, [reportMtdSpendingByCategory]);
 
   const summaryBudgetRows = useMemo(() => {
-    return dashboardRows
+    return reportMtdRows
       .filter((row) => row.hasBudget)
       .sort((a, b) => b.spent - a.spent)
       .slice(0, 6);
-  }, [dashboardRows]);
+  }, [reportMtdRows]);
 
-  const importedDateRange = useMemo(() => {
-    if (!transactions.length) return "No imported transactions";
-    const dates = transactions.map((transaction) => transaction.date.getTime());
-    const earliest = new Date(Math.min(...dates));
-    const latest = new Date(Math.max(...dates));
-    const formatDate = (date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    return earliest.getTime() === latest.getTime() ? formatDate(earliest) : `${formatDate(earliest)} – ${formatDate(latest)}`;
-  }, [transactions]);
+  const reportMtdUnbudgetedCategories = reportMtdCategoryRows.filter((row) => !row.hasBudget && row.spent > 0).map((row) => row.name);
 
   function importCsv(file) {
     if (!file) return;
@@ -876,37 +962,37 @@ function App() {
             <header className="print-summary-header">
               <div>
                 <p className="print-summary-kicker">Personal budget tracker</p>
-                <h1>Budget snapshot</h1>
-                <p>{periodLabel(selectedPeriod)} · {visibleTransactions.length} selected-period transactions</p>
+                <h1>Month-to-date snapshot</h1>
+                <p>{periodLabel(selectedPeriod)} through day {mtdComparison.day} · {reportMtdTransactions.length} transactions</p>
               </div>
-              <div className="print-summary-meta"><span>Prepared {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span><span>Imported range {importedDateRange}</span></div>
+              <div className="print-summary-meta"><span>Prepared {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span><span>Report range: day 1–{mtdComparison.day}</span></div>
             </header>
 
             <div className="print-summary-metrics">
-              <div><span>Money in</span><strong>{moneyPrecise.format(cashFlow.incoming)}</strong></div>
-              <div><span>Money out</span><strong>{moneyPrecise.format(cashFlow.outgoing)}</strong></div>
-              <div><span>Net cash flow</span><strong className={cashFlow.incoming - cashFlow.outgoing < 0 ? "print-negative" : "print-positive"}>{moneyPrecise.format(cashFlow.incoming - cashFlow.outgoing)}</strong></div>
-              <div><span>Budget remaining</span><strong className={summary.remaining < 0 ? "print-negative" : ""}>{moneyPrecise.format(summary.remaining)}</strong></div>
+              <div><span>Money in MTD</span><strong>{moneyPrecise.format(reportMtdCashFlow.incoming)}</strong></div>
+              <div><span>Money out MTD</span><strong>{moneyPrecise.format(reportMtdCashFlow.outgoing)}</strong></div>
+              <div><span>Net cash flow MTD</span><strong className={reportMtdCashFlow.incoming - reportMtdCashFlow.outgoing < 0 ? "print-negative" : "print-positive"}>{moneyPrecise.format(reportMtdCashFlow.incoming - reportMtdCashFlow.outgoing)}</strong></div>
+              <div><span>Budget left</span><strong className={reportMtdSummary.remaining < 0 ? "print-negative" : ""}>{moneyPrecise.format(reportMtdSummary.remaining)}</strong></div>
             </div>
 
             <div className="print-summary-columns">
               <section className="print-summary-card">
-                <div className="print-summary-card-heading"><h2>Top spending categories</h2><span>{moneyPrecise.format(summary.allExpenses)} total</span></div>
-                {summaryCategories.length ? <div className="print-summary-list">{summaryCategories.slice(0, 6).map((category) => <div className="print-summary-row" key={category.name}><span>{category.name || "Uncategorized"}<small>{category.share.toFixed(0)}% of expenses</small></span><strong>{moneyPrecise.format(category.amount)}</strong></div>)}</div> : <p className="print-summary-empty">No expense transactions in this period.</p>}
+                <div className="print-summary-card-heading"><h2>Top MTD spending categories</h2><span>{moneyPrecise.format(reportMtdSummary.allExpenses)} total</span></div>
+                {summaryCategories.length ? <div className="print-summary-list">{summaryCategories.slice(0, 6).map((category) => <div className="print-summary-row" key={category.name}><span>{category.name || "Uncategorized"}<small>{category.share.toFixed(0)}% of MTD expenses</small></span><strong>{moneyPrecise.format(category.amount)}</strong></div>)}</div> : <p className="print-summary-empty">No expense transactions in this period.</p>}
               </section>
 
               <section className="print-summary-card">
-                <div className="print-summary-card-heading"><h2>Budget health</h2><span>{moneyPrecise.format(summary.budgetedSpend)} matched</span></div>
-                {summaryBudgetRows.length ? <div className="print-summary-list">{summaryBudgetRows.map((row) => <div className="print-summary-row" key={row.id}><span>{row.name}<small>{row.percent.toFixed(0)}% of {moneyPrecise.format(row.limit)}</small></span><strong className={row.remaining < 0 ? "print-negative" : ""}>{row.remaining < 0 ? `${moneyPrecise.format(Math.abs(row.remaining))} over` : `${moneyPrecise.format(row.remaining)} left`}</strong></div>)}</div> : <p className="print-summary-empty">No budget limits configured.</p>}
+                <div className="print-summary-card-heading"><h2>MTD budget health</h2><span>{moneyPrecise.format(reportMtdSummary.budgetedSpend)} matched</span></div>
+                {summaryBudgetRows.length ? <div className="print-summary-list">{summaryBudgetRows.map((row) => <div className="print-summary-row" key={row.id}><span>{row.name}<small>{row.percent.toFixed(0)}% of {moneyPrecise.format(row.limit)} monthly limit</small></span><strong className={row.remaining < 0 ? "print-negative" : ""}>{row.remaining < 0 ? `${moneyPrecise.format(Math.abs(row.remaining))} over` : `${moneyPrecise.format(row.remaining)} left`}</strong></div>)}</div> : <p className="print-summary-empty">No budget limits configured.</p>}
               </section>
             </div>
 
             <div className="print-summary-bottom">
-              <section><p className="print-summary-label">Month-to-date through day {mtdComparison.day}</p><strong>{moneyPrecise.format(mtdComparison.rows[0]?.amount || 0)}</strong><span>{mtdComparison.rows[1]?.available ? `${moneyPrecise.format(Math.abs(mtdComparison.rows[0].amount - mtdComparison.rows[1].amount))} ${mtdComparison.rows[0].amount >= mtdComparison.rows[1].amount ? "higher" : "lower"} than prior month` : "Prior month not available"}</span></section>
-              <section><p className="print-summary-label">Incoming money across selected range</p><strong>{moneyPrecise.format(incomeSummary.total)}</strong><span>{incomeSummary.count} deposit{incomeSummary.count === 1 ? "" : "s"} · average {moneyPrecise.format(incomeSummary.periodAverage)} per period</span></section>
-              <section><p className="print-summary-label">Review notes</p><strong>{unbudgetedCategories.length ? `${unbudgetedCategories.length} unbudgeted categor${unbudgetedCategories.length === 1 ? "y" : "ies"}` : "All spending reviewed"}</strong><span>Transactions stay in this browser tab.</span></section>
+              <section><p className="print-summary-label">MTD expenses through day {mtdComparison.day}</p><strong>{moneyPrecise.format(mtdComparison.rows[0]?.amount || 0)}</strong><span>{mtdComparison.rows[1]?.available ? `${moneyPrecise.format(Math.abs(mtdComparison.rows[0].amount - mtdComparison.rows[1].amount))} ${mtdComparison.rows[0].amount >= mtdComparison.rows[1].amount ? "higher" : "lower"} than prior month` : "Prior month not available"}</span></section>
+              <section><p className="print-summary-label">Incoming money MTD</p><strong>{moneyPrecise.format(reportMtdCashFlow.incoming)}</strong><span>{reportMtdIncomeCount} deposit{reportMtdIncomeCount === 1 ? "" : "s"} through day {mtdComparison.day}</span></section>
+              <section><p className="print-summary-label">MTD review notes</p><strong>{reportMtdUnbudgetedCategories.length ? `${reportMtdUnbudgetedCategories.length} unbudgeted categor${reportMtdUnbudgetedCategories.length === 1 ? "y" : "ies"}` : "All MTD spending reviewed"}</strong><span>Transactions stay in this browser tab.</span></section>
             </div>
-            <footer className="print-summary-footer">Generated locally from the imported CSV · Amounts shown in USD · Select “Save as PDF” in your browser’s print dialog to keep this page.</footer>
+            <footer className="print-summary-footer">Generated locally from the imported CSV · All figures are month-to-date through the selected cutoff day · Budget limits are monthly limits · Select “Save as PDF” in your browser’s print dialog to keep this page.</footer>
           </section>
         )}
       </section>
