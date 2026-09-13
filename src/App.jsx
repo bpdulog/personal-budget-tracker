@@ -437,6 +437,29 @@ function App() {
     return { day, rows: comparisonRows, average, chartRows: availableRows };
   }, [mtdDay, selectedPeriod, transactions]);
 
+  const summaryCategories = useMemo(() => {
+    const total = Object.values(spendingByCategory).reduce((sum, amount) => sum + amount, 0);
+    return Object.entries(spendingByCategory)
+      .map(([name, amount]) => ({ name, amount, share: total ? (amount / total) * 100 : 0 }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [spendingByCategory]);
+
+  const summaryBudgetRows = useMemo(() => {
+    return dashboardRows
+      .filter((row) => row.hasBudget)
+      .sort((a, b) => b.spent - a.spent)
+      .slice(0, 6);
+  }, [dashboardRows]);
+
+  const importedDateRange = useMemo(() => {
+    if (!transactions.length) return "No imported transactions";
+    const dates = transactions.map((transaction) => transaction.date.getTime());
+    const earliest = new Date(Math.min(...dates));
+    const latest = new Date(Math.max(...dates));
+    const formatDate = (date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return earliest.getTime() === latest.getTime() ? formatDate(earliest) : `${formatDate(earliest)} – ${formatDate(latest)}`;
+  }, [transactions]);
+
   function importCsv(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -518,6 +541,19 @@ function App() {
     link.click();
     URL.revokeObjectURL(url);
     setMessage(`${budgets.length} budget rule${budgets.length === 1 ? "" : "s"} exported. Keep the JSON file somewhere safe.`);
+  }
+
+  function exportSummary() {
+    if (!transactions.length || !selectedPeriod) {
+      setMessage("Import a CSV and choose a period before exporting a summary.");
+      return;
+    }
+
+    const previousTitle = document.title;
+    document.title = `Budget summary - ${periodLabel(selectedPeriod)}`;
+    setMessage("Summary ready. In the print dialog, choose Save as PDF for a one-page reference.");
+    window.print();
+    window.setTimeout(() => { document.title = previousTitle; }, 1000);
   }
 
   async function importBudgets(file) {
@@ -627,7 +663,10 @@ function App() {
           <section className="results" aria-label="Budget dashboard">
             <div className="dashboard-heading">
               <div><p className="eyebrow">Dashboard</p><h2>{selectedPeriod ? periodLabel(selectedPeriod) : "Choose a period to begin"}</h2></div>
-              <label className="period-select"> <span className="visually-hidden">Month and year</span><select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} disabled={!periods.length}><option value="">No imported period</option>{periods.map((period) => <option key={period} value={period}>{periodLabel(period)}</option>)}</select></label>
+              <div className="dashboard-actions">
+                {transactions.length > 0 && <button className="summary-export-button" type="button" onClick={exportSummary}>Export 1-page summary</button>}
+                <label className="period-select"> <span className="visually-hidden">Month and year</span><select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} disabled={!periods.length}><option value="">No imported period</option>{periods.map((period) => <option key={period} value={period}>{periodLabel(period)}</option>)}</select></label>
+              </div>
             </div>
 
             <div className="metric-grid">
@@ -828,6 +867,45 @@ function App() {
             )}
           </section>
         </section>
+
+        {transactions.length > 0 && selectedPeriod && (
+          <section className="print-summary" aria-hidden="true">
+            <header className="print-summary-header">
+              <div>
+                <p className="print-summary-kicker">Personal budget tracker</p>
+                <h1>Budget snapshot</h1>
+                <p>{periodLabel(selectedPeriod)} · {visibleTransactions.length} selected-period transactions</p>
+              </div>
+              <div className="print-summary-meta"><span>Prepared {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span><span>Imported range {importedDateRange}</span></div>
+            </header>
+
+            <div className="print-summary-metrics">
+              <div><span>Money in</span><strong>{moneyPrecise.format(cashFlow.incoming)}</strong></div>
+              <div><span>Money out</span><strong>{moneyPrecise.format(cashFlow.outgoing)}</strong></div>
+              <div><span>Net cash flow</span><strong className={cashFlow.incoming - cashFlow.outgoing < 0 ? "print-negative" : "print-positive"}>{moneyPrecise.format(cashFlow.incoming - cashFlow.outgoing)}</strong></div>
+              <div><span>Budget remaining</span><strong className={summary.remaining < 0 ? "print-negative" : ""}>{moneyPrecise.format(summary.remaining)}</strong></div>
+            </div>
+
+            <div className="print-summary-columns">
+              <section className="print-summary-card">
+                <div className="print-summary-card-heading"><h2>Top spending categories</h2><span>{moneyPrecise.format(summary.allExpenses)} total</span></div>
+                {summaryCategories.length ? <div className="print-summary-list">{summaryCategories.slice(0, 6).map((category) => <div className="print-summary-row" key={category.name}><span>{category.name || "Uncategorized"}<small>{category.share.toFixed(0)}% of expenses</small></span><strong>{moneyPrecise.format(category.amount)}</strong></div>)}</div> : <p className="print-summary-empty">No expense transactions in this period.</p>}
+              </section>
+
+              <section className="print-summary-card">
+                <div className="print-summary-card-heading"><h2>Budget health</h2><span>{moneyPrecise.format(summary.budgetedSpend)} matched</span></div>
+                {summaryBudgetRows.length ? <div className="print-summary-list">{summaryBudgetRows.map((row) => <div className="print-summary-row" key={row.id}><span>{row.name}<small>{row.percent.toFixed(0)}% of {moneyPrecise.format(row.limit)}</small></span><strong className={row.remaining < 0 ? "print-negative" : ""}>{row.remaining < 0 ? `${moneyPrecise.format(Math.abs(row.remaining))} over` : `${moneyPrecise.format(row.remaining)} left`}</strong></div>)}</div> : <p className="print-summary-empty">No budget limits configured.</p>}
+              </section>
+            </div>
+
+            <div className="print-summary-bottom">
+              <section><p className="print-summary-label">Month-to-date through day {mtdComparison.day}</p><strong>{moneyPrecise.format(mtdComparison.rows[0]?.amount || 0)}</strong><span>{mtdComparison.rows[1]?.available ? `${moneyPrecise.format(Math.abs(mtdComparison.rows[0].amount - mtdComparison.rows[1].amount))} ${mtdComparison.rows[0].amount >= mtdComparison.rows[1].amount ? "higher" : "lower"} than prior month` : "Prior month not available"}</span></section>
+              <section><p className="print-summary-label">Incoming money across selected range</p><strong>{moneyPrecise.format(incomeSummary.total)}</strong><span>{incomeSummary.count} deposit{incomeSummary.count === 1 ? "" : "s"} · average {moneyPrecise.format(incomeSummary.periodAverage)} per period</span></section>
+              <section><p className="print-summary-label">Review notes</p><strong>{unbudgetedCategories.length ? `${unbudgetedCategories.length} unbudgeted categor${unbudgetedCategories.length === 1 ? "y" : "ies"}` : "All spending reviewed"}</strong><span>Transactions stay in this browser tab.</span></section>
+            </div>
+            <footer className="print-summary-footer">Generated locally from the imported CSV · Amounts shown in USD · Select “Save as PDF” in your browser’s print dialog to keep this page.</footer>
+          </section>
+        )}
       </section>
     </main>
   );
