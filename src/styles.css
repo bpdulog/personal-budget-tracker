@@ -158,6 +158,80 @@ button, input, select { font: inherit; } button { border: 0; cursor: pointer; }
 .print-summary-bottom strong { display: block; margin-top: 6px; color: #17231f; font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 500; }
 .print-summary-bottom span { display: block; margin-top: 4px; color: #65736e; font-size: 10px; line-height: 1.35; }
 .print-summary-footer { margin-top: 17px; padding-top: 9px; border-top: 1px solid #d7dfdb; color: #71807a; font-size: 9px; line-height: 1.4; }
+.card-spend-shell { padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: linear-gradient(180deg, rgba(247, 241, 227, .1), rgba(247, 241, 227, .04)), rgba(13, 17, 16, .86); box-shadow: var(--shadow); }
+.card-spend-heading { align-items: start; }
+.card-spend-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.card-spend-controls .trend-select { min-width: 170px; }
+.card-spend-chart { height: 290px; margin-top: 14px; padding: 9px 4px 0; border: 1px solid rgba(231, 215, 168, .14); border-radius: 8px; background: linear-gradient(180deg, #111715, #0c1110); cursor: pointer; }
+.card-table-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(231, 215, 168, .14); }
+.card-table-title { display: flex; align-items: baseline; gap: 10px; }
+.card-table-title h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.2rem; font-weight: 500; }
+.card-table-title span { color: var(--muted); font-size: .75rem; font-weight: 700; }
+.card-table-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.card-filter-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: rgba(45, 212, 191, .14); border: 1px solid rgba(45, 212, 191, .35); color: #dffff8; font-size: .74rem; font-weight: 700; }
+.card-filter-clear { background: transparent; color: var(--teal); padding: 0 4px; font-size: .95rem; line-height: 1; font-weight: 900; cursor: pointer; }
+.card-filter-clear:hover { color: #fff; }
+.card-category-table-wrap { max-height: 480px; margin-top: 14px; overflow: auto; border: 1px solid rgba(231, 215, 168, .12); border-radius: 8px; background: rgba(0, 0, 0, .2); }
+.card-category-table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: .78rem; table-layout: fixed; }
+.card-category-table th { position: sticky; top: 0; z-index: 2; padding: 10px 12px; color: var(--muted); background: #151b19; font-size: .68rem; letter-spacing: .06em; text-align: left; text-transform: uppercase; border-bottom: 1px solid rgba(231, 215, 168, .15); }
+.card-category-table th:last-child, .card-category-table td:last-child { text-align: right; }
+.card-category-table td { padding: 10px 12px; border-top: 1px solid rgba(231, 215, 168, .08); color: var(--muted); vertical-align: middle; overflow-wrap: anywhere; word-break: break-word; }
+.card-category-row:hover td { background: rgba(247, 241, 227, .025); }
+.card-cat-name-wrap { display: grid; gap: 5px; }
+.card-cat-name { color: var(--ink); font-weight: 700; font-size: .82rem; }
+.card-cat-track { height: 5px; overflow: hidden; border-radius: 99px; background: rgba(247, 241, 227, .09); max-width: 220px; }
+.card-cat-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--teal), #a6f3e7); }
+.card-cat-amount { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-size: .95rem; font-weight: 600; white-space: nowrap; }
+.card-cat-share { color: var(--muted); font-weight: 700; font-size: .76rem; }
+.card-details-btn { padding: 5px 9px; color: var(--accent); border: 1px solid rgba(216, 180, 95, .32); border-radius: 5px; background: rgba(216, 180, 95, .08); font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.card-details-btn:hover { color: var(--ink); border-color: rgba(216, 180, 95, .65); background: rgba(216, 180, 95, .15); }
+.card-expanded-row td { background: rgba(0, 0, 0, .35); padding: 12px 14px 16px; border-top: none; }
+.card-expanded-table-wrap { max-height: 240px; overflow: auto; border: 1px solid rgba(231, 215, 168, .1); border-radius: 6px; background: #0f1312; }
+.card-chart-hint { margin: 8px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+@media (max-width: 640px) {
+  .card-spend-controls { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .card-spend-controls .trend-select { min-width: 0; }
+  .card-table-bar { flex-direction: column; align-items: stretch; }
+}
+.csv-guide-shell { margin-top: 12px; }
+.csv-guide-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; background: rgba(0, 0, 0, .25); border: 1px solid rgba(231, 215, 168, .2); border-radius: 6px; color: var(--ink); cursor: pointer; text-align: left; transition: all .15s ease; }
+.csv-guide-toggle:hover, .csv-guide-toggle.is-open { border-color: rgba(216, 180, 95, .55); background: rgba(216, 180, 95, .09); }
+.csv-guide-toggle-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(45, 212, 191, .15); color: var(--teal); font-size: .8rem; font-weight: 900; margin-right: 9px; flex: 0 0 auto; }
+.csv-guide-toggle-text { flex: 1 1 auto; min-width: 0; }
+.csv-guide-toggle-text strong { display: block; font-size: .78rem; color: var(--ink); }
+.csv-guide-toggle-text small { display: block; color: var(--muted); font-size: .68rem; margin-top: 2px; }
+.csv-guide-chevron { color: var(--muted); font-size: .65rem; margin-left: 6px; flex: 0 0 auto; }
+.csv-guide-content { margin-top: 9px; padding: 14px; background: rgba(9, 12, 11, .95); border: 1px solid rgba(231, 215, 168, .22); border-radius: 7px; display: grid; gap: 14px; font-size: .74rem; color: var(--muted); line-height: 1.5; }
+.csv-guide-block h4 { margin: 0 0 6px; color: var(--accent); font-size: .74rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.csv-guide-block p { margin: 0 0 8px; font-size: .72rem; }
+.csv-headers-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.csv-headers-list code { padding: 3px 6px; background: rgba(247, 241, 227, .09); border: 1px solid rgba(231, 215, 168, .2); border-radius: 4px; color: #fff; font-family: monospace; font-size: .7rem; font-weight: 700; }
+.csv-field-descriptions { margin: 0; padding-left: 16px; display: grid; gap: 4px; font-size: .7rem; }
+.csv-field-descriptions li strong { color: var(--ink); }
+.csv-field-descriptions code { color: var(--teal); font-family: monospace; font-size: .68rem; }
+.csv-amount-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.csv-amount-rule { padding: 9px 10px; border-radius: 6px; border: 1px solid; }
+.csv-amount-rule.expense { background: rgba(251, 113, 133, .08); border-color: rgba(251, 113, 133, .3); }
+.csv-amount-rule.income { background: rgba(45, 212, 191, .08); border-color: rgba(45, 212, 191, .3); }
+.csv-amount-badge { display: inline-block; padding: 1px 6px; border-radius: 99px; font-size: .65rem; font-weight: 800; margin-bottom: 4px; }
+.csv-amount-badge.neg { background: rgba(251, 113, 133, .25); color: #fda4af; }
+.csv-amount-badge.pos { background: rgba(45, 212, 191, .25); color: #a7f3d0; }
+.csv-amount-rule strong { display: block; color: var(--ink); font-size: .72rem; margin-bottom: 2px; }
+.csv-amount-rule p { margin: 0; font-size: .67rem; line-height: 1.35; }
+.csv-amount-rule code { color: #fff; font-weight: 700; }
+.csv-preview-box { margin: 0; padding: 8px 10px; background: #090c0b; border: 1px solid rgba(231, 215, 168, .12); border-radius: 5px; color: #d1c7b7; font-family: monospace; font-size: .66rem; overflow-x: auto; white-space: pre; line-height: 1.45; }
+.csv-guide-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 4px; }
+.csv-template-btn { padding: 7px 10px; background: linear-gradient(135deg, #f1e2b8, #d8b45f); color: #17120a; border-radius: 5px; font-size: .72rem; font-weight: 800; cursor: pointer; white-space: nowrap; text-align: center; }
+.csv-template-btn:hover { background: linear-gradient(135deg, #fff2c9, #e1bf6c); }
+.csv-demo-btn { padding: 7px 10px; background: rgba(45, 212, 191, .12); border: 1px solid rgba(45, 212, 191, .35); color: var(--teal); border-radius: 5px; font-size: .72rem; font-weight: 800; cursor: pointer; white-space: nowrap; text-align: center; }
+.csv-demo-btn:hover { background: rgba(45, 212, 191, .2); color: #dffff8; }
+.csv-empty-demo-btn { margin-top: 15px; padding: 8px 14px; border: 1px solid rgba(45, 212, 191, .35); border-radius: 6px; background: rgba(45, 212, 191, .1); color: var(--teal); font-size: .8rem; font-weight: 800; cursor: pointer; }
+.csv-empty-demo-btn:hover { background: rgba(45, 212, 191, .18); color: #dffff8; border-color: var(--teal); }
+@media (max-width: 640px) {
+  .csv-amount-rules { grid-template-columns: 1fr; }
+  .csv-guide-actions { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 760px) { .dashboard-actions { align-items: stretch; flex-direction: column-reverse; width: 100%; }.summary-export-button { width: 100%; }.dashboard-actions .period-select select { width: 100%; } }
 @media print {
   @page { size: Letter portrait; margin: .42in; }

@@ -19,6 +19,8 @@ Date,Account,Description,Category,Tags,Amount
 
 Expenses are negative values in `Amount`; the dashboard uses their absolute values when calculating category spending. Positive values are treated as non-expense transactions and do not count against a budget.
 
+Credit cards and accounts are identified via the `Account` column, allowing you to select individual cards to view monthly spending trends on a line chart and inspect spending by category below it.
+
 ## Run locally
 
 ```bash

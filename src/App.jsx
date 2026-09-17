@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -106,6 +106,12 @@ function App() {
   const [showIncomeDetails, setShowIncomeDetails] = useState(false);
   const [incomeDetailView, setIncomeDetailView] = useState("summary");
   const [incomeSourceFilter, setIncomeSourceFilter] = useState("all");
+  const [selectedCard, setSelectedCard] = useState("");
+  const [cardStartPeriod, setCardStartPeriod] = useState("");
+  const [cardEndPeriod, setCardEndPeriod] = useState("");
+  const [cardCategoryPeriod, setCardCategoryPeriod] = useState("all");
+  const [expandedCardCategory, setExpandedCardCategory] = useState("");
+  const [showCsvGuide, setShowCsvGuide] = useState(false);
   const [message, setMessage] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInput = useRef(null);
@@ -296,6 +302,157 @@ function App() {
   }, [incomeDetailSources, incomeDetailTransactions]);
 
   const incomeRange = periodRangeLabel(incomeStartPeriod, incomeEndPeriod);
+
+  const allChronologicalPeriods = useMemo(() => {
+    return [...new Set(transactions.map((transaction) => periodKey(transaction.date)))].sort((a, b) => a.localeCompare(b));
+  }, [transactions]);
+
+  const cardAccounts = useMemo(() => {
+    const accounts = new Map();
+    transactions.forEach((transaction) => {
+      if (transaction.amount >= 0) return;
+      const rawName = String(transaction.account || "").trim() || "Unassigned Account";
+      const key = normalizedText(rawName);
+      if (!accounts.has(key)) {
+        accounts.set(key, { key, name: rawName, count: 0, total: 0 });
+      }
+      const acc = accounts.get(key);
+      acc.count += 1;
+      acc.total += Math.abs(transaction.amount);
+    });
+    return [...accounts.values()].sort((a, b) => b.total - a.total);
+  }, [transactions]);
+
+  useEffect(() => {
+    if (cardAccounts.length > 0) {
+      if (!selectedCard || (selectedCard !== "all" && !cardAccounts.some((c) => c.key === selectedCard))) {
+        setSelectedCard(cardAccounts[0].key);
+      }
+    } else {
+      setSelectedCard("all");
+    }
+  }, [cardAccounts, selectedCard]);
+
+  const visibleCardPeriods = useMemo(() => {
+    return allChronologicalPeriods.filter((period) => {
+      const afterStart = !cardStartPeriod || period >= cardStartPeriod;
+      const beforeEnd = !cardEndPeriod || period <= cardEndPeriod;
+      return afterStart && beforeEnd;
+    });
+  }, [allChronologicalPeriods, cardEndPeriod, cardStartPeriod]);
+
+  const cardMonthlyData = useMemo(() => {
+    return visibleCardPeriods.map((period) => {
+      const periodExpenses = transactions.filter((t) => {
+        if (t.amount >= 0) return false;
+        if (periodKey(t.date) !== period) return false;
+        if (selectedCard !== "all") {
+          const accKey = normalizedText(String(t.account || "").trim() || "Unassigned Account");
+          if (accKey !== selectedCard) return false;
+        }
+        return true;
+      });
+
+      const spent = periodExpenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      return {
+        period,
+        label: trendPeriodLabel(period),
+        fullLabel: periodLabel(period),
+        spent,
+        count: periodExpenses.length,
+      };
+    });
+  }, [selectedCard, transactions, visibleCardPeriods]);
+
+  const cardSummary = useMemo(() => {
+    const total = cardMonthlyData.reduce((sum, row) => sum + row.spent, 0);
+    const count = cardMonthlyData.reduce((sum, row) => sum + row.count, 0);
+    const monthsWithSpend = cardMonthlyData.filter((row) => row.spent > 0).length;
+    const periodCount = cardMonthlyData.length || 1;
+    const monthlyAverage = total / periodCount;
+
+    let peakMonth = null;
+    cardMonthlyData.forEach((row) => {
+      if (!peakMonth || row.spent > peakMonth.spent) {
+        peakMonth = row;
+      }
+    });
+
+    return {
+      total,
+      count,
+      monthlyAverage,
+      monthsWithSpend,
+      peakMonth: peakMonth && peakMonth.spent > 0 ? peakMonth : null,
+      latestLabel: cardMonthlyData.at(-1)?.label || "latest period",
+    };
+  }, [cardMonthlyData]);
+
+  const cardCategoryRows = useMemo(() => {
+    const filtered = transactions.filter((t) => {
+      if (t.amount >= 0) return false;
+      if (selectedCard !== "all") {
+        const accKey = normalizedText(String(t.account || "").trim() || "Unassigned Account");
+        if (accKey !== selectedCard) return false;
+      }
+      const p = periodKey(t.date);
+      if (cardStartPeriod && p < cardStartPeriod) return false;
+      if (cardEndPeriod && p > cardEndPeriod) return false;
+      if (cardCategoryPeriod !== "all" && p !== cardCategoryPeriod) return false;
+      return true;
+    });
+
+    const categoryMap = new Map();
+    filtered.forEach((t) => {
+      const rawCategory = String(t.category || "").trim() || "Uncategorized";
+      const key = normalizedText(rawCategory);
+      if (!categoryMap.has(key)) {
+        categoryMap.set(key, {
+          key,
+          name: rawCategory,
+          spent: 0,
+          count: 0,
+          transactions: [],
+        });
+      }
+      const entry = categoryMap.get(key);
+      const expense = Math.abs(t.amount);
+      entry.spent += expense;
+      entry.count += 1;
+      entry.transactions.push(t);
+    });
+
+    categoryMap.forEach((entry) => {
+      entry.transactions.sort((a, b) => b.date - a.date);
+    });
+
+    const totalCategorySpend = [...categoryMap.values()].reduce((sum, c) => sum + c.spent, 0);
+
+    return [...categoryMap.values()]
+      .map((entry) => ({
+        ...entry,
+        percentOfCard: totalCategorySpend > 0 ? (entry.spent / totalCategorySpend) * 100 : 0,
+        average: entry.count > 0 ? entry.spent / entry.count : 0,
+      }))
+      .sort((a, b) => b.spent - a.spent);
+  }, [cardCategoryPeriod, cardEndPeriod, cardStartPeriod, selectedCard, transactions]);
+
+  const cardTotalCategorySpend = useMemo(() => {
+    return cardCategoryRows.reduce((sum, row) => sum + row.spent, 0);
+  }, [cardCategoryRows]);
+
+  const selectedCardDisplayName = useMemo(() => {
+    if (selectedCard === "all") return "All cards / accounts";
+    const found = cardAccounts.find((c) => c.key === selectedCard);
+    return found?.name || "Selected card";
+  }, [cardAccounts, selectedCard]);
+
+  const cardCategoryPeriodLabel = useMemo(() => {
+    if (cardCategoryPeriod === "all") {
+      return periodRangeLabel(cardStartPeriod, cardEndPeriod);
+    }
+    return periodLabel(cardCategoryPeriod);
+  }, [cardCategoryPeriod, cardEndPeriod, cardStartPeriod]);
 
   const spendingByCategory = useMemo(() => {
     return visibleTransactions.reduce((totals, transaction) => {
@@ -598,6 +755,11 @@ function App() {
         setShowIncomeDetails(false);
         setIncomeDetailView("summary");
         setIncomeSourceFilter("all");
+        setSelectedCard("");
+        setCardStartPeriod("");
+        setCardEndPeriod("");
+        setCardCategoryPeriod("all");
+        setExpandedCardCategory("");
         setMessage(`${validRows.length} transactions loaded in memory. Close or refresh this tab to clear them.`);
 
         if (errors.length) {
@@ -606,6 +768,70 @@ function App() {
       },
       error: () => setMessage("The CSV could not be read. No data was saved."),
     });
+  }
+
+  function downloadCsvTemplate() {
+    const csvContent = [
+      "Date,Account,Description,Category,Tags,Amount",
+      "2026-03-01,Chase Sapphire,Trader Joe's,Groceries,food,-84.50",
+      "2026-03-02,Amex Gold,Blue Bottle Coffee,Restaurants,coffee,-6.75",
+      "2026-03-05,Checking,Payroll Direct Deposit,Income,salary,3200.00",
+      "2026-03-08,Chase Sapphire,Shell Oil,Transportation,gas,-45.20",
+      "2026-03-12,Apple Card,Netflix,Entertainment,subscription,-15.49",
+      "2026-03-15,Chase Sapphire,Whole Foods,Groceries,food,-112.30",
+      "2026-03-18,Amex Gold,Chipotle,Restaurants,lunch,-14.80",
+      "2026-03-22,Checking,Electric Utility,Utilities,bill,-85.00",
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "budget-tracker-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    setMessage("Downloaded budget-tracker-template.csv. Fill it in and drop it here!");
+  }
+
+  function loadSampleData() {
+    const sampleRows = [
+      { Date: "2026-01-03", Account: "Chase Sapphire", Description: "Whole Foods", Category: "Groceries", Tags: "food", Amount: "-124.50" },
+      { Date: "2026-01-05", Account: "Checking", Description: "Acme Corp Payroll", Category: "Income", Tags: "salary", Amount: "3400.00" },
+      { Date: "2026-01-08", Account: "Amex Gold", Description: "Chipotle", Category: "Restaurants", Tags: "dining", Amount: "-16.75" },
+      { Date: "2026-01-12", Account: "Chase Sapphire", Description: "Shell Gas Station", Category: "Transportation", Tags: "gas", Amount: "-48.20" },
+      { Date: "2026-01-15", Account: "Apple Card", Description: "Netflix", Category: "Entertainment", Tags: "subscription", Amount: "-15.49" },
+      { Date: "2026-01-18", Account: "Chase Sapphire", Description: "Trader Joe's", Category: "Groceries", Tags: "food", Amount: "-86.40" },
+      { Date: "2026-01-22", Account: "Amex Gold", Description: "Blue Bottle Coffee", Category: "Restaurants", Tags: "coffee", Amount: "-7.25" },
+      { Date: "2026-01-25", Account: "Checking", Description: "Electric Utility", Category: "Utilities", Tags: "bill", Amount: "-95.00" },
+
+      { Date: "2026-02-02", Account: "Chase Sapphire", Description: "Whole Foods", Category: "Groceries", Tags: "food", Amount: "-142.10" },
+      { Date: "2026-02-05", Account: "Checking", Description: "Acme Corp Payroll", Category: "Income", Tags: "salary", Amount: "3400.00" },
+      { Date: "2026-02-09", Account: "Amex Gold", Description: "Italian Bistro", Category: "Restaurants", Tags: "dinner", Amount: "-82.50" },
+      { Date: "2026-02-14", Account: "Chase Sapphire", Description: "Target", Category: "Shopping", Tags: "home", Amount: "-64.30" },
+      { Date: "2026-02-15", Account: "Apple Card", Description: "Spotify", Category: "Entertainment", Tags: "music", Amount: "-11.99" },
+      { Date: "2026-02-18", Account: "Chase Sapphire", Description: "Chevron", Category: "Transportation", Tags: "gas", Amount: "-52.10" },
+      { Date: "2026-02-23", Account: "Amex Gold", Description: "Sweetgreen", Category: "Restaurants", Tags: "lunch", Amount: "-18.50" },
+      { Date: "2026-02-26", Account: "Checking", Description: "Electric Utility", Category: "Utilities", Tags: "bill", Amount: "-102.40" },
+
+      { Date: "2026-03-02", Account: "Chase Sapphire", Description: "Trader Joe's", Category: "Groceries", Tags: "food", Amount: "-98.70" },
+      { Date: "2026-03-05", Account: "Checking", Description: "Acme Corp Payroll", Category: "Income", Tags: "salary", Amount: "3400.00" },
+      { Date: "2026-03-07", Account: "Amex Gold", Description: "Sushi Lounge", Category: "Restaurants", Tags: "dinner", Amount: "-115.00" },
+      { Date: "2026-03-10", Account: "Chase Sapphire", Description: "Whole Foods", Category: "Groceries", Tags: "food", Amount: "-156.80" },
+      { Date: "2026-03-12", Account: "Apple Card", Description: "Apple One", Category: "Entertainment", Tags: "subscription", Amount: "-19.95" },
+      { Date: "2026-03-15", Account: "Checking", Description: "Freelance Project", Category: "Income", Tags: "freelance", Amount: "750.00" },
+      { Date: "2026-03-18", Account: "Chase Sapphire", Description: "Shell Gas Station", Category: "Transportation", Tags: "gas", Amount: "-46.80" },
+      { Date: "2026-03-22", Account: "Amex Gold", Description: "Chipotle", Category: "Restaurants", Tags: "dining", Amount: "-17.20" },
+      { Date: "2026-03-25", Account: "Chase Sapphire", Description: "Amazon", Category: "Shopping", Tags: "supplies", Amount: "-58.90" },
+    ];
+
+    const csvText = [
+      "Date,Account,Description,Category,Tags,Amount",
+      ...sampleRows.map((r) => `${r.Date},${r.Account},${r.Description},${r.Category},${r.Tags},${r.Amount}`),
+    ].join("\n");
+
+    const file = new File([csvText], "sample-budget-activity.csv", { type: "text/csv" });
+    importCsv(file);
+    setMessage("Sample demonstration activity loaded! You can explore the full dashboard.");
   }
 
   function updateBudget(id, field, value) {
@@ -720,6 +946,92 @@ function App() {
             <p className="file-note">Expected columns: Date, Account, Description, Category, Tags, Amount</p>
             {message && <p className="message" role="status">{message}</p>}
 
+            <div className="csv-guide-shell">
+              <button
+                type="button"
+                className={`csv-guide-toggle ${showCsvGuide ? "is-open" : ""}`}
+                onClick={() => setShowCsvGuide((open) => !open)}
+                aria-expanded={showCsvGuide}
+              >
+                <span className="csv-guide-toggle-icon">ℹ</span>
+                <span className="csv-guide-toggle-text">
+                  <strong>{showCsvGuide ? "Hide CSV setup guide" : "Need a CSV? Setup guide & template"}</strong>
+                  <small>{showCsvGuide ? "Click to collapse" : "Required columns, pos/neg rules & starter template"}</small>
+                </span>
+                <span className="csv-guide-chevron">{showCsvGuide ? "▲" : "▼"}</span>
+              </button>
+
+              {showCsvGuide && (
+                <div className="csv-guide-content">
+                  <div className="csv-guide-block">
+                    <h4>1. Required Header Row</h4>
+                    <p>Row 1 must have these exact 6 column names:</p>
+                    <div className="csv-headers-list">
+                      <code>Date</code>
+                      <code>Account</code>
+                      <code>Description</code>
+                      <code>Category</code>
+                      <code>Tags</code>
+                      <code>Amount</code>
+                    </div>
+                    <ul className="csv-field-descriptions">
+                      <li><strong>Date:</strong> <code>YYYY-MM-DD</code> (e.g. <code>2026-03-15</code>) or <code>MM/DD/YYYY</code></li>
+                      <li><strong>Account:</strong> Card or account name (e.g. <code>Chase Sapphire</code>, <code>Amex Gold</code>, <code>Checking</code>). Powers the Credit Card Spend section!</li>
+                      <li><strong>Description:</strong> Merchant or payee (e.g. <code>Trader Joe's</code>). Matches vendor budget rules.</li>
+                      <li><strong>Category:</strong> Spending bucket (e.g. <code>Groceries</code>, <code>Dining</code>, <code>Utilities</code>).</li>
+                      <li><strong>Tags:</strong> Optional labels (e.g. <code>food, trip</code> or leave empty).</li>
+                      <li><strong>Amount:</strong> Number without currency symbols.</li>
+                    </ul>
+                  </div>
+
+                  <div className="csv-guide-block">
+                    <h4>2. Amount Format (+ / −)</h4>
+                    <div className="csv-amount-rules">
+                      <div className="csv-amount-rule expense">
+                        <span className="csv-amount-badge neg">− Negative</span>
+                        <strong>Expenses & Purchases</strong>
+                        <p>Any money spent must be negative (e.g. <code>-45.50</code> or <code>($45.50)</code>).</p>
+                      </div>
+                      <div className="csv-amount-rule income">
+                        <span className="csv-amount-badge pos">+ Positive</span>
+                        <strong>Income & Deposits</strong>
+                        <p>Paychecks, deposits, and refunds must be positive (e.g. <code>3200.00</code>).</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="csv-guide-block">
+                    <h4>3. Example Preview</h4>
+                    <pre className="csv-preview-box">
+{`Date,Account,Description,Category,Tags,Amount
+2026-03-01,Chase Sapphire,Trader Joe's,Groceries,food,-84.50
+2026-03-02,Amex Gold,Blue Bottle Coffee,Restaurants,coffee,-6.75
+2026-03-05,Checking,Payroll Direct Deposit,Income,salary,3200.00
+2026-03-08,Chase Sapphire,Shell Oil,Transportation,gas,-45.20
+2026-03-12,Apple Card,Netflix,Entertainment,subscription,-15.49`}
+                    </pre>
+                  </div>
+
+                  <div className="csv-guide-actions">
+                    <button
+                      type="button"
+                      className="csv-template-btn"
+                      onClick={downloadCsvTemplate}
+                    >
+                      📥 Download template .csv
+                    </button>
+                    <button
+                      type="button"
+                      className="csv-demo-btn"
+                      onClick={loadSampleData}
+                    >
+                      ⚡ Load demo data
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="budget-heading"><div><p className="eyebrow">Configuration</p><h2>Budget rules</h2></div><button className="text-button" type="button" onClick={() => addBudget()}>+ Add</button></div>
             <p className="budget-help">Category rules use the imported Category. Vendor rules match anywhere in a transaction Description.</p>
             <div className="budget-list">
@@ -767,7 +1079,14 @@ function App() {
 
             {!transactions.length ? (
               <>
-                <section className="empty-state"><span>⌁</span><h3>Your dashboard is ready.</h3><p>Upload a CSV to see private, month-by-month budget progress.</p></section>
+                <section className="empty-state">
+                  <span>⌁</span>
+                  <h3>Your dashboard is ready.</h3>
+                  <p>Upload a CSV to see private, month-by-month budget progress.</p>
+                  <button type="button" className="csv-empty-demo-btn" onClick={loadSampleData}>
+                    ✨ Load demo activity to preview dashboard
+                  </button>
+                </section>
                 <section className="category-detail-shell category-detail-disabled">
                   <div className="panel-heading category-detail-heading">
                     <div><p className="eyebrow">Category explorer</p><h2>Drill into a category</h2><p className="section-copy">Review vendors and individual transactions by category after importing your activity.</p></div>
@@ -788,6 +1107,13 @@ function App() {
                     <div className="income-controls"><label className="trend-select"><span>From</span><select aria-label="Choose the first income period" disabled><option>Import a CSV first</option></select></label><label className="trend-select"><span>To</span><select aria-label="Choose the last income period" disabled><option>Import a CSV first</option></select></label></div>
                   </div>
                   <div className="detail-empty"><strong>Upload a CSV to unlock income trends.</strong><span>Incoming totals, date ranges, source groupings, and deposit details will appear here.</span></div>
+                </section>
+                <section className="card-spend-shell card-spend-disabled">
+                  <div className="panel-heading card-spend-heading">
+                    <div><p className="eyebrow">Card activity</p><h2>Credit card spend</h2><p className="section-copy">Track monthly spending by credit card and inspect which categories drive each card's balance.</p></div>
+                    <div className="card-spend-controls"><label className="trend-select"><span>Card</span><select aria-label="Choose a card to inspect" disabled><option>Import a CSV first</option></select></label></div>
+                  </div>
+                  <div className="detail-empty"><strong>Upload a CSV to unlock credit card spending trends.</strong><span>Monthly line charts by card and category breakdowns will appear here.</span></div>
                 </section>
               </>
             ) : (
@@ -864,6 +1190,305 @@ function App() {
                           <div className="transaction-table-wrap"><table className="transaction-table"><thead><tr><th>Date</th><th>Description</th><th>Account</th><th>Amount</th></tr></thead><tbody>{detailTransactions.map((transaction) => <tr key={transaction.id}><td>{transaction.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td><td><strong>{transaction.description || "Unknown description"}</strong>{transaction.tags && <small>{transaction.tags}</small>}</td><td>{transaction.account || "—"}</td><td>{moneyPrecise.format(Math.abs(transaction.amount))}</td></tr>)}</tbody></table></div>
                         </div>
                       </div>
+                    </>
+                  )}
+                </section>
+                <section className="card-spend-shell">
+                  <div className="panel-heading card-spend-heading">
+                    <div>
+                      <p className="eyebrow">Card activity</p>
+                      <h2>Credit card spend</h2>
+                      <p className="section-copy">Select a card to track monthly spending on a line chart, and review the category breakdown below.</p>
+                    </div>
+                    <div className="card-spend-controls">
+                      <label className="trend-select">
+                        <span>Card</span>
+                        <select
+                          aria-label="Choose a credit card to inspect"
+                          value={selectedCard}
+                          onChange={(event) => {
+                            setSelectedCard(event.target.value);
+                            setCardCategoryPeriod("all");
+                            setExpandedCardCategory("");
+                          }}
+                        >
+                          <option value="all">All cards / accounts ({cardAccounts.length} combined)</option>
+                          {cardAccounts.map((card) => (
+                            <option key={`card-select-${card.key}`} value={card.key}>
+                              {card.name} ({card.count} expenses · {moneyPrecise.format(card.total)})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="trend-select">
+                        <span>From</span>
+                        <select
+                          aria-label="Choose the first card trend period"
+                          value={cardStartPeriod}
+                          onChange={(event) => {
+                            const nextStart = event.target.value;
+                            setCardStartPeriod(nextStart);
+                            if (nextStart && cardEndPeriod && nextStart > cardEndPeriod) setCardEndPeriod(nextStart);
+                          }}
+                        >
+                          <option value="">Earliest period</option>
+                          {allChronologicalPeriods.map((period) => (
+                            <option key={`card-start-${period}`} value={period}>{periodLabel(period)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="trend-select">
+                        <span>To</span>
+                        <select
+                          aria-label="Choose the last card trend period"
+                          value={cardEndPeriod}
+                          onChange={(event) => {
+                            const nextEnd = event.target.value;
+                            setCardEndPeriod(nextEnd);
+                            if (nextEnd && cardStartPeriod && nextEnd < cardStartPeriod) setCardStartPeriod(nextEnd);
+                          }}
+                        >
+                          <option value="">Latest period</option>
+                          {allChronologicalPeriods.map((period) => (
+                            <option key={`card-end-${period}`} value={period}>{periodLabel(period)}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  {!cardAccounts.length ? (
+                    <div className="detail-empty">
+                      <strong>No credit card expense transactions found.</strong>
+                      <span>Transactions with negative amounts will appear here grouped by card or account.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="detail-metrics">
+                        <article className="detail-metric">
+                          <span>Total card spend</span>
+                          <strong>{moneyPrecise.format(cardSummary.total)}</strong>
+                        </article>
+                        <article className="detail-metric">
+                          <span>Monthly average</span>
+                          <strong>{moneyPrecise.format(cardSummary.monthlyAverage)}</strong>
+                        </article>
+                        <article className="detail-metric">
+                          <span>Active months</span>
+                          <strong>{cardSummary.monthsWithSpend} of {cardMonthlyData.length}</strong>
+                        </article>
+                        <article className="detail-metric">
+                          <span>Categories</span>
+                          <strong>{cardCategoryRows.length}</strong>
+                        </article>
+                      </div>
+
+                      <div className="trend-summary">
+                        <span>
+                          <strong>{moneyPrecise.format(cardSummary.total)}</strong> spend on {selectedCardDisplayName} ({cardCategoryPeriodLabel})
+                        </span>
+                        {cardSummary.peakMonth && (
+                          <span>
+                            Peak month: <strong>{moneyPrecise.format(cardSummary.peakMonth.spent)}</strong> in {cardSummary.peakMonth.fullLabel}
+                          </span>
+                        )}
+                        <span className="average-summary">
+                          Average {moneyPrecise.format(cardSummary.monthlyAverage)} per month
+                        </span>
+                      </div>
+
+                      <div className="card-spend-chart" title="Click any month on the chart to filter the category breakdown below">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={cardMonthlyData}
+                            margin={{ top: 12, right: 14, left: -10, bottom: 4 }}
+                            onClick={(e) => {
+                              if (e?.activePayload?.[0]?.payload?.period) {
+                                setCardCategoryPeriod(e.activePayload[0].payload.period);
+                              }
+                            }}
+                          >
+                            <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
+                            <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
+                            <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
+                            <ReferenceLine
+                              y={cardSummary.monthlyAverage}
+                              stroke="#f1e2b8"
+                              strokeDasharray="5 5"
+                              label={{
+                                value: `Avg ${moneyPrecise.format(cardSummary.monthlyAverage)}`,
+                                fill: "#f1e2b8",
+                                fontSize: 11,
+                                position: "insideTopRight",
+                              }}
+                            />
+                            <Tooltip
+                              cursor={{ stroke: "rgba(45, 212, 191, .35)", strokeWidth: 1 }}
+                              formatter={(value) => [moneyPrecise.format(Number(value)), "Spend"]}
+                              labelFormatter={(label, payload) => `${payload?.[0]?.payload?.fullLabel || label} · ${selectedCardDisplayName}`}
+                              contentStyle={{
+                                background: "#151b19",
+                                border: "1px solid rgba(231, 215, 168, .25)",
+                                borderRadius: 8,
+                                color: "#f7f1e3",
+                              }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="spent"
+                              name="Spend"
+                              stroke="#2dd4bf"
+                              strokeWidth={3}
+                              dot={{ r: 4, fill: "#2dd4bf", stroke: "#0d1110", strokeWidth: 2 }}
+                              activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p className="card-chart-hint">💡 Tip: Click any month on the chart above to filter the category breakdown table below.</p>
+
+                      <div className="card-table-bar">
+                        <div className="card-table-title">
+                          <h3>Spending by category</h3>
+                          <span>
+                            {cardCategoryRows.length} categor{cardCategoryRows.length === 1 ? "y" : "ies"} · {moneyPrecise.format(cardTotalCategorySpend)} total
+                          </span>
+                        </div>
+                        <div className="card-table-filters">
+                          {cardCategoryPeriod !== "all" && (
+                            <span className="card-filter-pill">
+                              Filtered to: {periodLabel(cardCategoryPeriod)}
+                              <button
+                                className="card-filter-clear"
+                                type="button"
+                                onClick={() => setCardCategoryPeriod("all")}
+                                title="Reset to all months"
+                                aria-label="Reset to all months"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          )}
+                          <label className="trend-select">
+                            <span className="visually-hidden">Filter category spend by month</span>
+                            <select
+                              aria-label="Filter category spend by month"
+                              value={cardCategoryPeriod}
+                              onChange={(event) => setCardCategoryPeriod(event.target.value)}
+                            >
+                              <option value="all">All imported months in range</option>
+                              {cardMonthlyData.map((row) => (
+                                <option key={`card-month-${row.period}`} value={row.period}>
+                                  {row.fullLabel} ({moneyPrecise.format(row.spent)})
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+
+                      {!cardCategoryRows.length ? (
+                        <div className="detail-empty">
+                          <strong>No spending found for this selection.</strong>
+                          <span>
+                            {cardCategoryPeriod !== "all"
+                              ? `No transactions on this card in ${periodLabel(cardCategoryPeriod)}. Try choosing another month or "All imported months in range".`
+                              : "Try widening the period range or selecting a different card."}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="card-category-table-wrap">
+                          <table className="card-category-table">
+                            <thead>
+                              <tr>
+                                <th style={{ width: "35%" }}>Category</th>
+                                <th style={{ width: "18%" }}>Total Spent</th>
+                                <th style={{ width: "16%" }}>Share of Card</th>
+                                <th style={{ width: "13%" }}>Transactions</th>
+                                <th style={{ width: "18%" }}>Details</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cardCategoryRows.map((cat) => {
+                                const isExpanded = expandedCardCategory === cat.key;
+                                return (
+                                  <Fragment key={cat.key}>
+                                    <tr className="card-category-row">
+                                      <td>
+                                        <div className="card-cat-name-wrap">
+                                          <span className="card-cat-name">{cat.name}</span>
+                                          <div className="card-cat-track">
+                                            <div
+                                              className="card-cat-fill"
+                                              style={{ width: `${Math.min(cat.percentOfCard, 100)}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td>
+                                        <strong className="card-cat-amount">{moneyPrecise.format(cat.spent)}</strong>
+                                      </td>
+                                      <td>
+                                        <span className="card-cat-share">{cat.percentOfCard.toFixed(1)}%</span>
+                                      </td>
+                                      <td>
+                                        <span>{cat.count}</span>
+                                      </td>
+                                      <td>
+                                        <button
+                                          type="button"
+                                          className="card-details-btn"
+                                          onClick={() => setExpandedCardCategory(isExpanded ? "" : cat.key)}
+                                          aria-expanded={isExpanded}
+                                        >
+                                          {isExpanded ? "Hide rows ↑" : `View ${cat.count} row${cat.count === 1 ? "" : "s"} ↓`}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    {isExpanded && (
+                                      <tr className="card-expanded-row">
+                                        <td colSpan={5}>
+                                          <div className="card-expanded-table-wrap">
+                                            <table className="transaction-table">
+                                              <thead>
+                                                <tr>
+                                                  <th>Date</th>
+                                                  <th>Description</th>
+                                                  <th>Account</th>
+                                                  <th>Amount</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {cat.transactions.map((transaction) => (
+                                                  <tr key={transaction.id}>
+                                                    <td>
+                                                      {transaction.date.toLocaleDateString("en-US", {
+                                                        month: "short",
+                                                        day: "numeric",
+                                                        year: "numeric",
+                                                      })}
+                                                    </td>
+                                                    <td>
+                                                      <strong>{transaction.description || "Unknown description"}</strong>
+                                                      {transaction.tags && <small>{transaction.tags}</small>}
+                                                    </td>
+                                                    <td>{transaction.account || "—"}</td>
+                                                    <td>{moneyPrecise.format(Math.abs(transaction.amount))}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </>
                   )}
                 </section>
