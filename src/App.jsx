@@ -1132,7 +1132,7 @@ function App() {
                         <XAxis dataKey="chartLabel" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <ReferenceLine y={mtdComparison.average} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(mtdComparison.average)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
-                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${label} · through day ${mtdComparison.day}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${label} · through day ${mtdComparison.day}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} itemStyle={{ color: "#f7f1e3" }} labelStyle={{ color: "#f7f1e3" }} />
                         <Bar dataKey="amount" name="Expenses" radius={[5, 5, 0, 0]}>{mtdComparison.chartRows.map((row, index) => <Cell key={row.period} fill={index === 0 ? "#2dd4bf" : index === 1 ? "#d8b45f" : "#b98d36"} />)}</Bar>
                       </BarChart>
                     </ResponsiveContainer>
@@ -1156,7 +1156,7 @@ function App() {
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <ReferenceLine y={trendSummary.average} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(trendSummary.average)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
-                        <Tooltip cursor={{ stroke: "rgba(45, 212, 191, .35)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${selectedTrendName} · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Tooltip cursor={{ stroke: "rgba(45, 212, 191, .35)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `${selectedTrendName} · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} itemStyle={{ color: "#f7f1e3" }} labelStyle={{ color: "#f7f1e3" }} />
                         <Line type="monotone" dataKey="value" name={selectedTrendName} stroke="#2dd4bf" strokeWidth={3} dot={{ r: 4, fill: "#2dd4bf", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1332,6 +1332,8 @@ function App() {
                                 borderRadius: 8,
                                 color: "#f7f1e3",
                               }}
+                              itemStyle={{ color: "#f7f1e3" }}
+                              labelStyle={{ color: "#f7f1e3" }}
                             />
                             <Line
                               type="monotone"
@@ -1508,7 +1510,7 @@ function App() {
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} minTickGap={22} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <ReferenceLine y={incomeSummary.periodAverage} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${moneyPrecise.format(incomeSummary.periodAverage)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
-                        <Tooltip cursor={{ stroke: "rgba(216, 180, 95, .45)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `Incoming money · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Tooltip cursor={{ stroke: "rgba(216, 180, 95, .45)", strokeWidth: 1 }} formatter={(value) => moneyPrecise.format(Number(value))} labelFormatter={(label) => `Incoming money · ${label}`} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} itemStyle={{ color: "#f7f1e3" }} labelStyle={{ color: "#f7f1e3" }} />
                         <Line type="monotone" dataKey="value" name="Incoming money" stroke="#d8b45f" strokeWidth={3} dot={{ r: 4, fill: "#d8b45f", stroke: "#0d1110", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#f1e2b8", stroke: "#0d1110", strokeWidth: 2 }} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1545,7 +1547,7 @@ function App() {
                           <CartesianGrid vertical={false} stroke="rgba(231, 215, 168, 0.13)" />
                           <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                           <YAxis tickLine={false} axisLine={false} tickFormatter={formatAxisMoney} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
-                          <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                          <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value) => moneyPrecise.format(Number(value))} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} itemStyle={{ color: "#f7f1e3" }} labelStyle={{ color: "#f7f1e3" }} />
                           <Bar dataKey="incoming" name="Money in" fill="#2dd4bf" radius={[5, 5, 0, 0]} />
                           <Bar dataKey="outgoing" name="Money out" fill="#d8b45f" radius={[5, 5, 0, 0]} />
                         </BarChart>
@@ -1562,7 +1564,7 @@ function App() {
                         <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => formatChartValue(value, comparisonMode)} tick={{ fill: "#b8b2a2", fontSize: 12 }} />
                         <ReferenceLine y={comparisonAverage} stroke="#f1e2b8" strokeDasharray="5 5" label={{ value: `Avg ${formatChartValue(comparisonAverage, comparisonMode)}`, fill: "#f1e2b8", fontSize: 11, position: "insideTopRight" }} />
-                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value, name, item) => formatChartValue(comparisonMode === "percent" ? item?.payload?.rawChartSpent ?? value : value, comparisonMode)} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} />
+                        <Tooltip cursor={{ fill: "rgba(247, 241, 227, 0.05)" }} formatter={(value, name, item) => formatChartValue(comparisonMode === "percent" ? item?.payload?.rawChartSpent ?? value : value, comparisonMode)} contentStyle={{ background: "#151b19", border: "1px solid rgba(231, 215, 168, .25)", borderRadius: 8, color: "#f7f1e3" }} itemStyle={{ color: "#f7f1e3" }} labelStyle={{ color: "#f7f1e3" }} />
                         <Bar dataKey="chartSpent" name={comparisonMode === "percent" ? "Spent %" : "Spent"} radius={[5, 5, 0, 0]}>{comparisonChartRows.map((row) => <Cell key={row.id} fill={row.percent > 100 ? "#fb7185" : "#d8b45f"} />)}</Bar>
                         <Bar dataKey="chartLimit" name={comparisonMode === "percent" ? "Limit" : "Monthly limit"} fill="rgba(45, 212, 191, .65)" radius={[5, 5, 0, 0]} />
                       </BarChart>
